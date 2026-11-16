@@ -25,9 +25,10 @@ namespace MoreUseResources.Core
             return Math.Max(0, Math.Min(byPercent, byFree));
         }
 
-        internal bool CanPrewarmTexture(int width, int height, int targetPercent, long keepFreeBytes)
+        internal bool CanPrewarmTexture(int width, int height, int targetPercent, long keepFreeBytes, int maxDimension = 1024)
         {
-            if (!DriverReported || UsageBytes < 0 || BudgetBytes <= 0 || width is < 1 or > 1024 || height is < 1 or > 1024)
+            if (!DriverReported || UsageBytes < 0 || BudgetBytes <= 0 || width < 1 || height < 1
+                || maxDimension is < 1 or > 4096 || width > maxDimension || height > maxDimension)
                 return false;
 
             // Conservative allowance for the image, mip chain, alignment and driver block growth.
@@ -49,18 +50,20 @@ namespace MoreUseResources.Core
     /// </summary>
     public static class PrewarmAdmissionPolicy
     {
-        public static PrewarmAdmission Evaluate(VramInfo info, int width, int height, int targetPercent, long keepFreeBytes)
+        public static PrewarmAdmission Evaluate(VramInfo info, int width, int height,
+            int targetPercent, long keepFreeBytes, int maxDimension = 1024)
         {
-            if (width is < 1 or > 1024 || height is < 1 or > 1024)
+            if (maxDimension is < 1 or > 4096 || width < 1 || height < 1
+                || width > maxDimension || height > maxDimension)
                 return PrewarmAdmission.Reject;
             if (!info.DriverReported || info.BudgetBytes <= 0)
                 return PrewarmAdmission.Defer;
             // The same conservative allowance is used both for the theoretical cap and
             // the live driver usage, so a permanently oversized texture cannot stall scans.
             var empty = new VramInfo(0, info.BudgetBytes, true);
-            if (!empty.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes))
+            if (!empty.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes, maxDimension))
                 return PrewarmAdmission.Reject;
-            return info.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes)
+            return info.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes, maxDimension)
                 ? PrewarmAdmission.Upload : PrewarmAdmission.Defer;
         }
     }
