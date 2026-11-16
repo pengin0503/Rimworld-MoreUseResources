@@ -51,6 +51,27 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Can_release_one_owned_file_without_evicting_unrelated_native_copies()
+        {
+            using var store = new NativeBlockStore();
+            var events = new List<string>();
+            store.BlockReleased += events.Add;
+            foreach (string key in new[] { "first", "second" })
+            {
+                Assert.True(store.TryBegin(256, 1000, out IntPtr p));
+                NativeBlockStore.Touch(p, 256);
+                store.Commit(p, 256, key);
+            }
+            Assert.Equal(256, store.ReleaseKey("first"));
+            Assert.Equal(256, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+            Assert.Equal(new[] { "first" }, events);
+            Assert.Equal(0, store.ReleaseKey("first"));
+            Assert.Equal(256, store.ReleaseAll());
+            Assert.Equal(new[] { "first", "second" }, events);
+        }
+
+        [Fact]
         public void Commit_after_dispose_frees_instead_of_leaking()
         {
             var store = new NativeBlockStore();
@@ -439,6 +460,64 @@ namespace MoreUseResources.Tests
                 Thread.Sleep(5);
                 return cache.FilesRead >= 2 && store.CommittedBytes == 150_000;
             }, TimeSpan.FromSeconds(10)));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Changed_real_file_invalidates_only_stale_Ram_copy_after_periodic_OS_refresh(bool sameSize)
+        {
+            string changed = MakeFile("changed.bin", 120_000);
+            string stable = MakeFile("stable.bin", 90_000);
+            long now = 1000;
+            using var pool = new WorkerPool(2);
+            using var store = new NativeBlockStore();
+            pool.Configure(2, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { changed, stable });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 2, true, 300_000);
+            Assert.Equal(210_000, store.CommittedBytes);
+
+            // The byte sequence changes; a same-size update must also invalidate a copy.
+            File.WriteAllBytes(changed, new byte[sameSize ? 120_000 : 140_000]);
+            Interlocked.Exchange(ref now, 62_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 300_000, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            // One old native copy is released, while the unrelated file stays in RAM.
+            Assert.Equal(90_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+
+            // The post-eviction cooldown prevents immediate allocation churn.
+            for (int i = 0; i < 5; i++) cache.Pump(true, true, 300_000);
+            Assert.Equal(90_000, store.CommittedBytes);
+            Interlocked.Exchange(ref now, 93_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 300_000);
+                Thread.Sleep(5);
+                return store.CommittedBytes == (sameSize ? 210_000 : 230_000);
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, store.BlockCount);
+        }
+
+        [Fact]
+        public void Reset_does_not_double_allocate_for_files_already_held()
+        {
+            string path = MakeFile("one.bin", 64_000);
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool);
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 100_000);
+            cache.Reset();
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 2, true, 100_000);
+            Assert.Equal(64_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
         }
 
         [Fact]
