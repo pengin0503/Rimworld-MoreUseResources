@@ -40,6 +40,7 @@ internal sealed class ResourceModSettings : ModSettings
 
         Scribe_Values.Look(ref Value.RamEnabled, "ramEnabled", Defaults.RamEnabled);
         Scribe_Values.Look(ref Value.RamFileCache, "prefetchFiles", Defaults.RamFileCache);
+        Scribe_Values.Look(ref Value.RamPrefetchRefreshMinutes, "prefetchRefreshMinutes", Defaults.RamPrefetchRefreshMinutes);
         Scribe_Values.Look(ref Value.RamHoldCopies, "holdCopies", Defaults.RamHoldCopies);
         Scribe_Values.Look(ref Value.RamFileCacheMiB, "cacheMiB", Defaults.RamFileCacheMiB);
         Scribe_Values.Look(ref Value.RamMinFreeMiB, "keepFreeMiB", Defaults.RamMinFreeMiB);
