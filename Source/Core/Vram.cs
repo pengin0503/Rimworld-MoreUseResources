@@ -36,6 +36,70 @@ namespace MoreUseResources.Core
         }
     }
 
+    public enum PrewarmAdmission
+    {
+        Upload = 0,
+        Defer = 1,
+        Reject = 2,
+    }
+
+    /// <summary>
+    /// Decide candidate admission without touching the graphics engine. Budget pressure is
+    /// temporary (defer), whereas a texture too large to ever fit under the cap is rejected.
+    /// </summary>
+    public static class PrewarmAdmissionPolicy
+    {
+        public static PrewarmAdmission Evaluate(VramInfo info, int width, int height, int targetPercent, long keepFreeBytes)
+        {
+            if (width is < 1 or > 1024 || height is < 1 or > 1024)
+                return PrewarmAdmission.Reject;
+            if (!info.DriverReported || info.BudgetBytes <= 0)
+                return PrewarmAdmission.Defer;
+            // The same conservative allowance is used both for the theoretical cap and
+            // the live driver usage, so a permanently oversized texture cannot stall scans.
+            var empty = new VramInfo(0, info.BudgetBytes, true);
+            if (!empty.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes))
+                return PrewarmAdmission.Reject;
+            return info.CanPrewarmTexture(width, height, targetPercent, keepFreeBytes)
+                ? PrewarmAdmission.Upload : PrewarmAdmission.Defer;
+        }
+    }
+
+    /// <summary>Bounded FIFO of assets postponed until driver memory is available.</summary>
+    public sealed class PrewarmDeferredQueue<T> where T : class
+    {
+        private readonly Queue<T> _items = new Queue<T>();
+        private readonly int _capacity;
+
+        public PrewarmDeferredQueue(int capacity)
+        {
+            if (capacity < 1) throw new ArgumentOutOfRangeException(nameof(capacity));
+            _capacity = capacity;
+        }
+
+        public int Count => _items.Count;
+        public long Dropped { get; private set; }
+
+        public bool Defer(T item)
+        {
+            if (_items.Count >= _capacity)
+            {
+                Dropped++;
+                return false;
+            }
+            _items.Enqueue(item);
+            return true;
+        }
+
+        public T? Take() => _items.Count == 0 ? null : _items.Dequeue();
+
+        public void Clear()
+        {
+            _items.Clear();
+            Dropped = 0;
+        }
+    }
+
     /// <summary>Everything the VRAM features need from the engine. Implemented game-side; faked in tests.</summary>
     public interface IVramBackend<T> where T : class
     {
