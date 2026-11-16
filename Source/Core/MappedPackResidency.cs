@@ -358,13 +358,11 @@ namespace MoreUseResources.Core
                 }
                 finally
                 {
-                    if (!published)
+                    lock (_gate)
                     {
-                        lock (_gate)
-                        {
-                            // Always give back this reservation, including across generations.
-                            _reservedBytes -= length;
-                        }
+                        // Success transfers the reservation to committed bytes; failures
+                        // and obsolete generations release it without touching other maps.
+                        _reservedBytes -= length;
                     }
                 }
                 return published ? mapping : null;

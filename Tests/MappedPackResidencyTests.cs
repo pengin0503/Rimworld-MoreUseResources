@@ -36,7 +36,10 @@ namespace MoreUseResources.Tests
             using var residency = new MappedPackResidency(pool);
             residency.SetSources(new[] { a, b, a });
 
-            Assert.True(PumpUntil(residency, s => s.Passes == 1));
+            // Exactly the aggregate file size: a leaked reservation would wrongly
+            // defer the second file even though both committed views fit the budget.
+            long exactLimit = 3 * 1024 * 1024 + 123 + 4096;
+            Assert.True(PumpUntil(residency, s => s.Passes == 1, limit: exactLimit));
             PackResidencySnapshot status = residency.Snapshot;
             Assert.Equal(2, status.Sources);
             Assert.Equal(2, status.MappedFiles);
@@ -100,6 +103,29 @@ namespace MoreUseResources.Tests
             Assert.True(PumpUntil(residency, s => s.Passes == 1));
             residency.Pump(false, 1L << 30, 0);
             Assert.Equal(1, residency.Snapshot.MappedFiles);
+        }
+
+        [Fact]
+        public void Source_replacement_drops_inflight_obsolete_maps_and_preserves_new_budget()
+        {
+            using var temp = new TemporaryDirectory();
+            string old = temp.Write("old/Assets.zip", 12 * 1024 * 1024);
+            string current = temp.Write("current/Assets.zip", 4096);
+            using var pool = Pool();
+            using var residency = new MappedPackResidency(pool);
+            residency.SetSources(new[] { old });
+
+            // Kick off an asynchronous read, then immediately replace its source snapshot.
+            residency.Pump(true, 16L * 1024 * 1024, 0);
+            residency.SetSources(new[] { current });
+            Assert.True(PumpUntil(residency, s => s.Passes >= 1 && s.MappedFiles == 1,
+                limit: 16L * 1024 * 1024));
+
+            PackResidencySnapshot result = residency.Snapshot;
+            Assert.Equal(1, result.Sources);
+            Assert.Equal(1, result.MappedFiles);
+            Assert.Equal(4096, result.MappedBytes);
+            Assert.Equal(0, result.Deferred);
         }
 
         [Fact]

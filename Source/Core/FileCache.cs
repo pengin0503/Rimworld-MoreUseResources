@@ -36,6 +36,7 @@ namespace MoreUseResources.Core
 
         private List<string> _files = new List<string>();
         private HashSet<string> _prefetchOnly = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _oversize = new HashSet<string>(StringComparer.Ordinal);
         private int _cursor;
         private int _inFlight;
         private int _deferredForBudget;
@@ -122,6 +123,7 @@ namespace MoreUseResources.Core
                 _done.Clear();
                 _warmed.Clear();
                 _copyHashes.Clear();
+                _oversize.Clear();
                 // Reset means a fresh live-file snapshot: retained native copies must
                 // be released before the same paths can be committed again.
                 _store.ReleaseAll();
@@ -221,7 +223,8 @@ namespace MoreUseResources.Core
                     if (_inFlight >= maxInFlight) return;
                     if (_cursor == 0) _limitAtPassStart = limitBytes;
                     path = _files[_cursor++];
-                    copy = !_maintenancePass && _readCopies && !_prefetchOnly.Contains(path);
+                    copy = !_maintenancePass && _readCopies
+                        && !_prefetchOnly.Contains(path) && !_oversize.Contains(path);
                     if (copy ? _done.Contains(path) : _warmed.Contains(path)) continue;
                     _inFlight++;
                     generation = _generation;
@@ -278,6 +281,10 @@ namespace MoreUseResources.Core
                 {
                     // The copy is too large, but the file still needs to warm the OS cache.
                     Interlocked.Increment(ref _skippedLarge);
+                    lock (_gate)
+                    {
+                        if (generation == _generation) _oversize.Add(path);
+                    }
                     copy = false;
                 }
                 if (copy)

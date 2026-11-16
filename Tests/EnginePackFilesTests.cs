@@ -39,6 +39,7 @@ namespace MoreUseResources.Tests
             Assert.True(EnginePackFiles.IsKeyedPagesPack("pages." + Hash + ".zip"));
             Assert.False(EnginePackFiles.IsKeyedPagesPack("pages.zip"));
             Assert.False(EnginePackFiles.IsKeyedPagesPack("pagesX" + Hash + ".zip"));
+            Assert.False(EnginePackFiles.IsKeyedPagesPack("pages." + new string('z', 16) + ".zip"));
         }
 
         [Fact]
@@ -65,7 +66,7 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
-        public void Keeps_only_the_newest_generation_of_a_pack()
+        public void Keeps_all_generations_to_avoid_missing_the_active_engine_pack()
         {
             using var temp = new TemporaryDirectory();
             string cache = temp.Dir("cache");
@@ -78,7 +79,7 @@ namespace MoreUseResources.Tests
             List<string> found = EnginePackFiles.Discover(cache, new[] { Path.Combine(temp.Path, "Data", "Core") },
                 Array.Empty<string>(), null, CancellationToken.None);
 
-            Assert.Equal(new[] { current }, found);
+            Assert.Equal(new[] { current, stale }, found);
         }
 
         [Fact]
@@ -123,6 +124,30 @@ namespace MoreUseResources.Tests
             Assert.Equal(3, status.FileSources);
             Assert.Equal(1, status.AuditSources);
             Assert.Equal(2, status.FileSourceChanges);
+        }
+
+        [Fact]
+        public void Engine_packs_prefetch_into_os_cache_even_with_native_copies_enabled()
+        {
+            using var temp = new TemporaryDirectory();
+            string pack = temp.Write(Path.Combine(temp.Path, "Assets.zip"), new string('x', 4096));
+            var settings = new ResourceSettings { RamHoldCopies = true };
+            using var controller = new ResourceController(new FakeProbe(), 2, initial: settings);
+            controller.PublishSignals(new RawGameSignals { Focused = true, PlayDataLoaded = true });
+            controller.SetFileSources(Array.Empty<string>(), new[] { pack });
+
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                controller.ControlTick(true, 0.25);
+                Thread.Sleep(2);
+                return controller.GetStatus().FilesRead > 0;
+            }, TimeSpan.FromSeconds(10)));
+
+            ControllerStatus status = controller.GetStatus();
+            Assert.Equal(1, status.FileSources);
+            Assert.Equal(0, status.AuditSources);
+            Assert.Equal(0, status.CacheHeldBytes);
+            Assert.True(settings.RamHoldCopies);
         }
 
         private sealed class NoProbe : IMemoryProbe
