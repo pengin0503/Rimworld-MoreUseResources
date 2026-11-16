@@ -76,6 +76,7 @@ public sealed class MoreUseResourcesMod : Mod
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
         list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
+        list.Label("MUR_FileDiscoveryStatus".Translate(status.FileDiscoveryPasses, status.FileSourceChanges));
         list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
             InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));
@@ -197,6 +198,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
         Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
         Slider(list, "MUR_CpuAuditInterval", ref s.CpuAuditRescanMinutes, 0, 120, 5);
+        Slider(list, "MUR_FileDiscoveryInterval", ref s.AssetDiscoveryRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
         Toggle(list, "MUR_Synthetic", ref s.CpuSyntheticLoad);
         Slider(list, "MUR_Duty", ref s.CpuSyntheticDutyPercent, 5, 100, 5);
