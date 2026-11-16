@@ -61,7 +61,10 @@ namespace MoreUseResources.Tests
             List<string> found = EnginePackFiles.Discover(cache, new[] { modRoot + Path.DirectorySeparatorChar },
                 new[] { loadFolder, modRoot }, new[] { extra, missing, extra }, CancellationToken.None);
 
-            Assert.Equal(new[] { active, pages }.OrderBy(p => p, StringComparer.Ordinal), found.Take(2));
+            // Cache candidates are prioritized by modification time; their relative
+            // order is not alphabetical and may vary between filesystems.
+            Assert.Equal(new[] { active, pages }.OrderBy(p => p, StringComparer.Ordinal),
+                found.Take(2).OrderBy(p => p, StringComparer.Ordinal));
             Assert.Equal(new[] { assetPack, extra }, found.Skip(2));
         }
 
