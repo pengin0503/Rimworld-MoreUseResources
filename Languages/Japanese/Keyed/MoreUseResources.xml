@@ -13,6 +13,7 @@
   <MUR_MemoryStatus>ゲームのワーキングセット {0} MiB ／ OS使用可能 {1} MiB ／ メモリ制御 {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>OSのメモリ情報を確認できるまで、RAMの追加確保と先読みを停止します。</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} ／ 先読み済みテクスチャ {1}</MUR_GpuStatus>
+  <MUR_GpuMaintenanceStatus>GPU先読み完了回数 {0}</MUR_GpuMaintenanceStatus>
   <MUR_GpuQueueStatus>GPU先読み保留 {0} 件 ／ 保留上限で除外 {1} 件 ／ 恒久的に対象外 {2} 件 ／ アップロード失敗 {3} 件</MUR_GpuQueueStatus>
   <MUR_GpuBudgetStatus>GPUの最終計測値 使用 {0} MiB ／ ドライバー予算 {1} MiB</MUR_GpuBudgetStatus>
   <MUR_Auto>自動</MUR_Auto>
@@ -59,6 +60,7 @@
   <MUR_GpuTarget>目標上限 ドライバー予算の {0}%</MUR_GpuTarget>
   <MUR_GpuKeepFree>VRAMに残す余裕 {0} MiB</MUR_GpuKeepFree>
   <MUR_GpuFrameBudget>1回の処理時間の目安 {0} × 0.1 ms</MUR_GpuFrameBudget>
+  <MUR_GpuRefreshInterval>テクスチャ再先読み間隔 {0} 秒（0で再走査OFF）</MUR_GpuRefreshInterval>
   <MUR_GpuHint>テクスチャ先読みは、Vulkanの予算を取得できる単体GPUで、安定したフレーム中に実行します。常駐したテクスチャの管理はWaylithが行います。</MUR_GpuHint>
   <MUR_GpuUnsupported>テクスチャ先読みの対応版はWindows 1.7.5011 rev24です。</MUR_GpuUnsupported>
   <MUR_GpuDisabled>無効</MUR_GpuDisabled>
