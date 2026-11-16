@@ -56,6 +56,7 @@
   <MUR_PrefetchRefreshInterval>OS file cache refresh interval {0} minutes (0 disables)</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>Completed OS file cache maintenance passes {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_FileDiscoveryStatus>Asset folder discoveries {0} · Source list changes {1}</MUR_FileDiscoveryStatus>
+  <MUR_EnginePackStatus>Engine texture-cache and asset packs in the prefetch list: {0}</MUR_EnginePackStatus>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>

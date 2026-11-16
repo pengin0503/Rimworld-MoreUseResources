@@ -8,6 +8,7 @@ using MoreUseResources.Core;
 using RimWorld.Planet;
 using UnityEngine;
 using Verse;
+using Waylith.Runtime;
 
 namespace MoreUseResources;
 
@@ -30,7 +31,7 @@ internal sealed class ResourceRuntime
     {
         this.settings = settings;
         controller = new ResourceController(new SystemMemoryProbe(), Environment.ProcessorCount,
-            () => Volatile.Read(ref savingDepth) > 0, settings, CaptureFolders());
+            () => Volatile.Read(ref savingDepth) > 0, settings, CaptureFolders(), packDiscovery: CapturePackDiscovery());
     }
 
     internal bool HooksReady { get; private set; }
@@ -75,6 +76,23 @@ internal sealed class ResourceRuntime
     {
         Manual = ManualMode.Paused;
         controller.RequestReleaseMemory();
+    }
+
+    /// <summary>
+    /// Captures plain strings on the main thread so that the worker which enumerates the engine's
+    /// texture-cache and asset packs never touches game objects.
+    /// </summary>
+    private static Func<CancellationToken, IReadOnlyList<string>> CapturePackDiscovery()
+    {
+        var roots = new List<string>();
+        foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+        {
+            if (!string.IsNullOrEmpty(pack.RootDir)) roots.Add(Path.GetFullPath(pack.RootDir));
+        }
+        List<string> folders = CaptureFolders();
+        string? cacheDataPath = WaylithRuntime.Current?.App.CacheDataPath;
+        var extra = new[] { Path.Combine(AppContext.BaseDirectory, EnginePackFiles.AssetPackFileName) };
+        return token => EnginePackFiles.Discover(cacheDataPath, roots, folders, extra, token);
     }
 
     private static List<string> CaptureFolders()

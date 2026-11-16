@@ -56,6 +56,7 @@
   <MUR_PrefetchRefreshInterval>OSキャッシュへの再先読み間隔 {0} 分（0で停止）</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_FileDiscoveryStatus>MODアセット一覧の探索完了 {0} 回 ／ 一覧更新 {1} 回</MUR_FileDiscoveryStatus>
+  <MUR_EnginePackStatus>先読み対象のエンジン用テクスチャキャッシュ・アセットパック {0} 個</MUR_EnginePackStatus>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>

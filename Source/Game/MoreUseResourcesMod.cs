@@ -77,6 +77,7 @@ public sealed class MoreUseResourcesMod : Mod
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
         list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
         list.Label("MUR_FileDiscoveryStatus".Translate(status.FileDiscoveryPasses, status.FileSourceChanges));
+        list.Label("MUR_EnginePackStatus".Translate(status.EnginePackFiles));
         list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
             InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));

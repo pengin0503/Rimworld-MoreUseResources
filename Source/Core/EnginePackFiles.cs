@@ -1,0 +1,181 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+
+namespace MoreUseResources.Core
+{
+    /// <summary>
+    /// Locates the container files RimWorld 1.7 (Waylith) really reads textures from.
+    /// Once a source PNG was converted, the engine keeps the compressed result in
+    /// <c>&lt;cache&gt;/TextureCache/v&lt;N&gt;/&lt;tag&gt;/&lt;mod folder&gt;-&lt;16 hex&gt;.zip</c> and later
+    /// launches only compare the PNG's length and timestamp. Official content ships in an
+    /// <c>Assets.zip</c> next to each load folder. Warming loose PNG files therefore does not
+    /// touch what the game reads after its first launch; these packs do.
+    /// Discovery is read-only and never opens the packs.
+    /// </summary>
+    public static class EnginePackFiles
+    {
+        public const string AssetPackFileName = "Assets.zip";
+        public const string TextureCacheDirectory = "TextureCache";
+        public const int MaxPacks = 4096;
+        private const int HashHexLength = 16;
+        private const string KeyedPrefix = "pages.";
+
+        /// <summary>Mirrors the engine's pack naming: invalid file-name characters and spaces become '_'.</summary>
+        public static string SanitizeRootName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "root";
+            char[] chars = name.ToCharArray();
+            char[] invalid = Path.GetInvalidFileNameChars();
+            for (int i = 0; i < chars.Length; i++)
+            {
+                if (chars[i] == ' ' || Array.IndexOf(invalid, chars[i]) >= 0) chars[i] = '_';
+            }
+            return new string(chars);
+        }
+
+        /// <summary>
+        /// Splits "&lt;root&gt;-&lt;16 lowercase hex&gt;.zip" into its root part. Returns false for other names.
+        /// </summary>
+        public static bool TryGetPackRootName(string fileName, out string rootName)
+        {
+            rootName = string.Empty;
+            const string extension = ".zip";
+            int tail = 1 + HashHexLength + extension.Length;
+            if (fileName.Length <= tail || !fileName.EndsWith(extension, StringComparison.Ordinal)) return false;
+            int dash = fileName.Length - tail;
+            if (fileName[dash] != '-') return false;
+            for (int i = dash + 1; i < dash + 1 + HashHexLength; i++)
+            {
+                char c = fileName[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+            }
+            rootName = fileName.Substring(0, dash);
+            return true;
+        }
+
+        /// <summary>The engine's atlas page pack: "pages.&lt;16 hex&gt;.zip".</summary>
+        public static bool IsKeyedPagesPack(string fileName)
+        {
+            return fileName.Length == KeyedPrefix.Length + HashHexLength + 4
+                && fileName.StartsWith(KeyedPrefix, StringComparison.Ordinal)
+                && fileName.EndsWith(".zip", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns existing pack files, most valuable first: texture cache packs of the given mod
+        /// roots, then asset packs of the load folders and <paramref name="extraFiles"/>.
+        /// When several cache generations hold a pack of the same name only the most recently
+        /// written one is returned, because the engine uses one generation and sweeps the rest.
+        /// </summary>
+        public static List<string> Discover(string? cacheDataPath, IReadOnlyList<string> modRoots,
+            IReadOnlyList<string> loadFolders, IReadOnlyList<string>? extraFiles, CancellationToken token)
+        {
+            var result = new List<string>();
+            var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            var seen = new HashSet<string>(comparer);
+
+            AddTextureCachePacks(cacheDataPath, modRoots, comparer, result, seen, token);
+
+            foreach (string folder in loadFolders)
+            {
+                if (token.IsCancellationRequested || result.Count >= MaxPacks) return result;
+                AddIfFile(Path.Combine(folder, AssetPackFileName), result, seen);
+            }
+            if (extraFiles != null)
+            {
+                foreach (string file in extraFiles)
+                {
+                    if (token.IsCancellationRequested || result.Count >= MaxPacks) return result;
+                    AddIfFile(file, result, seen);
+                }
+            }
+            return result;
+        }
+
+        private static void AddTextureCachePacks(string? cacheDataPath, IReadOnlyList<string> modRoots,
+            StringComparer comparer, List<string> result, HashSet<string> seen, CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(cacheDataPath) || modRoots.Count == 0) return;
+            var wanted = new HashSet<string>(comparer);
+            foreach (string root in modRoots)
+            {
+                string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
+                if (!string.IsNullOrEmpty(name)) wanted.Add(SanitizeRootName(name));
+            }
+
+            // file name -> newest candidate across cache generations
+            var newest = new Dictionary<string, (string Path, DateTime Written)>(comparer);
+            try
+            {
+                string cacheRoot = Path.Combine(cacheDataPath!, TextureCacheDirectory);
+                if (!Directory.Exists(cacheRoot)) return;
+                foreach (string version in Directory.EnumerateDirectories(cacheRoot))
+                {
+                    if (IsReparsePoint(version)) continue;
+                    foreach (string variant in SafeDirectories(version))
+                    {
+                        if (IsReparsePoint(variant)) continue;
+                        foreach (string file in SafeFiles(variant))
+                        {
+                            if (token.IsCancellationRequested) return;
+                            string fileName = Path.GetFileName(file);
+                            bool match = IsKeyedPagesPack(fileName)
+                                || (TryGetPackRootName(fileName, out string rootName) && wanted.Contains(rootName));
+                            if (!match) continue;
+                            DateTime written;
+                            try { written = File.GetLastWriteTimeUtc(file); }
+                            catch (IOException) { continue; }
+                            catch (UnauthorizedAccessException) { continue; }
+                            if (!newest.TryGetValue(fileName, out var current) || written > current.Written)
+                                newest[fileName] = (file, written);
+                        }
+                    }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+
+            var ordered = new List<string>(newest.Count);
+            foreach (var entry in newest.Values) ordered.Add(entry.Path);
+            ordered.Sort(StringComparer.Ordinal);
+            foreach (string path in ordered)
+            {
+                if (result.Count >= MaxPacks) return;
+                if (seen.Add(path)) result.Add(path);
+            }
+        }
+
+        private static void AddIfFile(string path, List<string> result, HashSet<string> seen)
+        {
+            try
+            {
+                if (File.Exists(path) && !IsReparsePoint(path) && seen.Add(path)) result.Add(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        private static bool IsReparsePoint(string path)
+        {
+            try { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+            catch (IOException) { return true; }
+            catch (UnauthorizedAccessException) { return true; }
+        }
+
+        private static IEnumerable<string> SafeDirectories(string directory)
+        {
+            try { return Directory.GetDirectories(directory); }
+            catch (IOException) { return Array.Empty<string>(); }
+            catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+        }
+
+        private static IEnumerable<string> SafeFiles(string directory)
+        {
+            try { return Directory.GetFiles(directory, "*.zip"); }
+            catch (IOException) { return Array.Empty<string>(); }
+            catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+        }
+    }
+}

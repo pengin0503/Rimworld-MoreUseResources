@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 
 namespace MoreUseResources.Core
@@ -39,6 +40,8 @@ namespace MoreUseResources.Core
         public int FilesDeferredForBudget;
         public bool FilePassComplete;
         public int FileDiscoveryPasses;
+        /// <summary>Engine texture-cache and asset packs included in the prefetch list.</summary>
+        public int EnginePackFiles;
         public int FileSourceChanges;
         public int FileRefreshPasses;
         public int AuditSources;
@@ -87,8 +90,11 @@ namespace MoreUseResources.Core
         private readonly Func<bool>? _savingProbe;
         private readonly IReadOnlyList<string>? _assetFolders;
         private readonly Func<long> _assetClockMs;
+        private readonly Func<CancellationToken, IReadOnlyList<string>>? _packDiscovery;
+        private int _enginePackFiles;
         private readonly object _sourceGate = new object();
         private HashSet<string>? _knownSources;
+        private HashSet<string>? _knownLooseSources;
         private long _lastAssetDiscoveryAtMs;
         private int _assetDiscoveryPasses;
         private int _fileSourceChanges;
@@ -124,12 +130,14 @@ namespace MoreUseResources.Core
         private long _lastPrivateStamp;
 
         public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null,
-            ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null, Func<long>? assetClockMs = null)
+            ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null, Func<long>? assetClockMs = null,
+            Func<CancellationToken, IReadOnlyList<string>>? packDiscovery = null)
         {
             _probe = probe;
             _logicalProcessors = Math.Max(1, logicalProcessors);
             _savingProbe = savingProbe;
             _assetFolders = assetFolders;
+            _packDiscovery = packDiscovery;
             _assetClockMs = assetClockMs ?? (() => Environment.TickCount64);
             _settings = (initial ?? new ResourceSettings()).Clone();
             _settings.Clamp();
@@ -202,19 +210,40 @@ namespace MoreUseResources.Core
         public bool FrameThrottled => _throttled;
         public double FrameAverageMs => _frameGuard.AverageMs;
 
-        public void SetFileSources(IEnumerable<string> files)
+        /// <param name="files">Loose mod assets: prefetched and audited.</param>
+        /// <param name="enginePacks">Engine container files the game reads textures from. They are
+        /// prefetched ahead of loose assets and are not audited, because their content is the engine's.</param>
+        public void SetFileSources(IEnumerable<string> files, IEnumerable<string>? enginePacks = null)
         {
             var list = new List<string>(files);
             var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-            var set = new HashSet<string>(list, comparer);
+            var looseSet = new HashSet<string>(list, comparer);
+            var prefetch = new List<string>();
+            if (enginePacks != null)
+            {
+                var packSet = new HashSet<string>(comparer);
+                foreach (string pack in enginePacks)
+                {
+                    if (!string.IsNullOrEmpty(pack) && !looseSet.Contains(pack) && packSet.Add(pack)) prefetch.Add(pack);
+                }
+            }
+            int packCount = prefetch.Count;
+            prefetch.AddRange(list);
+            var set = new HashSet<string>(prefetch, comparer);
             lock (_sourceGate)
             {
                 // A mere re-enumeration is not a content change: do not release
                 // cached RAM copies or clear audit results for an identical set.
                 if (_knownSources != null && _knownSources.SetEquals(set)) return;
                 _knownSources = set;
-                _fileCache.SetSources(list);
-                _assetAudit.SetSources(list);
+                Volatile.Write(ref _enginePackFiles, packCount);
+                _fileCache.SetSources(prefetch);
+                // A new or removed engine pack does not invalidate audit results of loose assets.
+                if (_knownLooseSources == null || !_knownLooseSources.SetEquals(looseSet))
+                {
+                    _knownLooseSources = looseSet;
+                    _assetAudit.SetSources(list);
+                }
                 Interlocked.Increment(ref _fileSourceChanges);
             }
         }
@@ -355,7 +384,15 @@ namespace MoreUseResources.Core
                         () => _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()));
                     if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
                     {
-                        SetFileSources(files);
+                        IReadOnlyList<string>? packs = null;
+                        if (_packDiscovery != null)
+                        {
+                            try { packs = _packDiscovery(token); }
+                            catch (IOException) { }
+                            catch (UnauthorizedAccessException) { }
+                        }
+                        if (token.IsCancellationRequested) return;
+                        SetFileSources(files, packs);
                         Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
                         Interlocked.Increment(ref _assetDiscoveryPasses);
                         Volatile.Write(ref _assetScan, 2);
@@ -448,6 +485,7 @@ namespace MoreUseResources.Core
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
                 FilePassComplete = _fileCache.PassComplete,
                 FileDiscoveryPasses = Volatile.Read(ref _assetDiscoveryPasses),
+                EnginePackFiles = Volatile.Read(ref _enginePackFiles),
                 FileSourceChanges = Volatile.Read(ref _fileSourceChanges),
                 FileRefreshPasses = _fileCache.PeriodicRefreshes,
                 AuditSources = audit.Sources,
