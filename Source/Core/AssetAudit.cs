@@ -18,9 +18,11 @@ namespace MoreUseResources.Core
         public readonly int Errors;
         public readonly int Skipped;
         public readonly bool Complete;
+        public readonly int PassesCompleted;
+        public readonly long ChangedFiles;
 
         internal AssetAuditSnapshot(int sources, int completed, int duplicates, long duplicateBytes,
-            long hashedBytes, int errors, int skipped, bool complete)
+            long hashedBytes, int errors, int skipped, bool complete, int passesCompleted, long changedFiles)
         {
             Sources = sources;
             Completed = completed;
@@ -30,6 +32,8 @@ namespace MoreUseResources.Core
             Errors = errors;
             Skipped = skipped;
             Complete = complete;
+            PassesCompleted = passesCompleted;
+            ChangedFiles = changedFiles;
         }
     }
 
@@ -45,9 +49,11 @@ namespace MoreUseResources.Core
         private const long MaxFileBytes = 1L << 30;
         private readonly WorkerPool _pool;
         private readonly Func<bool>? _mayRun;
+        private readonly Func<long> _clockMs;
         private readonly object _gate = new object();
         private readonly HashSet<string> _completed;
         private readonly Dictionary<string, string> _firstByHash = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _lastHashByPath;
         private List<string> _files = new List<string>();
         private int _cursor;
         private int _inFlight;
@@ -59,13 +65,19 @@ namespace MoreUseResources.Core
         private int _duplicates;
         private int _errors;
         private int _skipped;
+        private int _passesCompleted;
+        private long _changedFiles;
+        private long _passCompletedAtMs;
+        private bool _passRecorded;
 
-        public AssetAudit(WorkerPool pool, Func<bool>? mayRun = null)
+        public AssetAudit(WorkerPool pool, Func<bool>? mayRun = null, Func<long>? clockMs = null)
         {
             _pool = pool;
             _mayRun = mayRun;
-            _completed = new HashSet<string>(OperatingSystem.IsWindows()
-                ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            _clockMs = clockMs ?? (() => Environment.TickCount64);
+            var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            _completed = new HashSet<string>(pathComparer);
+            _lastHashByPath = new Dictionary<string, string>(pathComparer);
         }
 
         public AssetAuditSnapshot Snapshot
@@ -76,7 +88,8 @@ namespace MoreUseResources.Core
                 {
                     return new AssetAuditSnapshot(_files.Count, _completed.Count, _duplicates,
                         _duplicateBytes, _hashedBytes, _errors, _skipped,
-                        _cursor >= _files.Count && _inFlight == 0 && !_retry && _completed.Count == _files.Count);
+                        _cursor >= _files.Count && _inFlight == 0 && !_retry && _completed.Count == _files.Count,
+                        _passesCompleted, _changedFiles);
                 }
             }
         }
@@ -97,6 +110,11 @@ namespace MoreUseResources.Core
                 _retry = false;
                 _completed.Clear();
                 _firstByHash.Clear();
+                _lastHashByPath.Clear();
+                _passesCompleted = 0;
+                _changedFiles = 0;
+                _passRecorded = false;
+                _passCompletedAtMs = 0;
                 _hashedBytes = 0;
                 _duplicateBytes = 0;
                 _duplicates = 0;
@@ -112,13 +130,38 @@ namespace MoreUseResources.Core
         }
 
         /// <summary>Called by the controller after its phase, frame and memory guards.</summary>
-        public void Pump(bool active, int workers)
+        public void Pump(bool active, int workers, long rescanIntervalMs = 0)
         {
             int limit = Math.Clamp(workers * 2, 1, 32);
             lock (_gate)
             {
                 _active = active;
                 if (!active) return;
+
+                bool finished = _cursor >= _files.Count && _inFlight == 0 && !_retry
+                    && _completed.Count == _files.Count;
+                if (finished && !_passRecorded)
+                {
+                    _passRecorded = true;
+                    _passesCompleted++;
+                    _passCompletedAtMs = _clockMs();
+                }
+                // Each new pass rehashes real files; only the previous fingerprints survive.
+                // Rescans are explicitly bounded by the user-configured interval.
+                if (_passRecorded && rescanIntervalMs > 0
+                    && _clockMs() - _passCompletedAtMs >= rescanIntervalMs)
+                {
+                    _passRecorded = false;
+                    _cursor = 0;
+                    _retry = false;
+                    _completed.Clear();
+                    _firstByHash.Clear();
+                    _hashedBytes = 0;
+                    _duplicateBytes = 0;
+                    _duplicates = 0;
+                    _errors = 0;
+                    _skipped = 0;
+                }
                 if (_cursor >= _files.Count && _inFlight == 0 && _retry)
                 {
                     _cursor = 0;
@@ -193,6 +236,10 @@ namespace MoreUseResources.Core
                     if (!MayRun(generation, token)) return;
                     if (_completed.Add(path))
                     {
+                        if (_lastHashByPath.TryGetValue(path, out string? previous)
+                            && !StringComparer.Ordinal.Equals(previous, fingerprint))
+                            _changedFiles++;
+                        _lastHashByPath[path] = fingerprint;
                         _hashedBytes += size;
                         if (_firstByHash.ContainsKey(fingerprint))
                         {
