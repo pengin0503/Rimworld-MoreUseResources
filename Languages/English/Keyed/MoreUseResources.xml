@@ -5,6 +5,8 @@
   <MUR_BackgroundError>A background task reported an error.</MUR_BackgroundError>
   <MUR_CurrentPhase>Phase {0} · Mode {1}</MUR_CurrentPhase>
   <MUR_CpuStatus>CPU {0} · Worker slots {1} · Queued jobs {2}</MUR_CpuStatus>
+  <MUR_CpuWorkerUsage>Mod worker CPU (all logical processors) {0}% · Jobs completed {1} · Failed {2}</MUR_CpuWorkerUsage>
+  <MUR_PerformanceStatus>Measured FPS {0} · TPS {1} · Mean frame interval {2} ms · Worst frame interval {3} ms (~1 s window)</MUR_PerformanceStatus>
   <MUR_RamStatus>RAM {0} · File copies {1} MiB · Reserved {2} MiB</MUR_RamStatus>
   <MUR_PrefetchStatus>Prefetch {0}/{1} · Read {2} files ({3} MiB) · Errors {4} · Budget skips {5}</MUR_PrefetchStatus>
   <MUR_AuditStatus>Asset audit {0}/{1} · Exact duplicates {2} ({3} MiB) · Hashed {4} MiB · Errors {5} · Skipped {6}</MUR_AuditStatus>
