@@ -34,6 +34,7 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.CpuEnabled, "cpuEnabled", Defaults.CpuEnabled);
         Scribe_Values.Look(ref Value.CpuMaxWorkers, "cpuMaxWorkers", Defaults.CpuMaxWorkers);
         Scribe_Values.Look(ref Value.CpuSyntheticLoad, "cpuSyntheticLoad", Defaults.CpuSyntheticLoad);
+        Scribe_Values.Look(ref Value.CpuIndexAssets, "cpuIndexAssets", Defaults.CpuIndexAssets);
         Scribe_Values.Look(ref Value.CpuSyntheticDutyPercent, "cpuSyntheticDutyPercent", Defaults.CpuSyntheticDutyPercent);
 
         Scribe_Values.Look(ref Value.RamEnabled, "ramEnabled", Defaults.RamEnabled);
