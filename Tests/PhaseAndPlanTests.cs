@@ -187,6 +187,18 @@ namespace MoreUseResources.Tests
             Assert.Equal(expected, settings.GpuMaxTextureDimension);
         }
 
+        [Theory]
+        [InlineData(-20, 0)]
+        [InlineData(0, 0)]
+        [InlineData(5, 5)]
+        [InlineData(180, 120)]
+        public void Prefetch_refresh_interval_is_bounded_and_optional(int raw, int expected)
+        {
+            var s = new ResourceSettings { RamPrefetchRefreshMinutes = raw };
+            s.Clamp();
+            Assert.Equal(expected, s.RamPrefetchRefreshMinutes);
+        }
+
         [Fact]
         public void Clone_is_deep()
         {
