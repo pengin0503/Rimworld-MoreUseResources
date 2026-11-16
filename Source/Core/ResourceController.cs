@@ -38,6 +38,8 @@ namespace MoreUseResources.Core
         public long FileErrors;
         public int FilesDeferredForBudget;
         public bool FilePassComplete;
+        public int FileDiscoveryPasses;
+        public int FileSourceChanges;
         public int FileRefreshPasses;
         public int AuditSources;
         public int AuditCompleted;
@@ -84,6 +86,12 @@ namespace MoreUseResources.Core
         private readonly int _logicalProcessors;
         private readonly Func<bool>? _savingProbe;
         private readonly IReadOnlyList<string>? _assetFolders;
+        private readonly Func<long> _assetClockMs;
+        private readonly object _sourceGate = new object();
+        private HashSet<string>? _knownSources;
+        private long _lastAssetDiscoveryAtMs;
+        private int _assetDiscoveryPasses;
+        private int _fileSourceChanges;
         private int _assetScan;
         private volatile bool _assetScanAllowed;
         private readonly WorkerPool _pool;
@@ -115,12 +123,14 @@ namespace MoreUseResources.Core
         private long _privateBytes;
         private long _lastPrivateStamp;
 
-        public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null, ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null)
+        public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null,
+            ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null, Func<long>? assetClockMs = null)
         {
             _probe = probe;
             _logicalProcessors = Math.Max(1, logicalProcessors);
             _savingProbe = savingProbe;
             _assetFolders = assetFolders;
+            _assetClockMs = assetClockMs ?? (() => Environment.TickCount64);
             _settings = (initial ?? new ResourceSettings()).Clone();
             _settings.Clamp();
             _pool = new WorkerPool(_logicalProcessors, mayBurn: CpuLoadAllowed);
@@ -195,8 +205,18 @@ namespace MoreUseResources.Core
         public void SetFileSources(IEnumerable<string> files)
         {
             var list = new List<string>(files);
-            _fileCache.SetSources(list);
-            _assetAudit.SetSources(list);
+            var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            var set = new HashSet<string>(list, comparer);
+            lock (_sourceGate)
+            {
+                // A mere re-enumeration is not a content change: do not release
+                // cached RAM copies or clear audit results for an identical set.
+                if (_knownSources != null && _knownSources.SetEquals(set)) return;
+                _knownSources = set;
+                _fileCache.SetSources(list);
+                _assetAudit.SetSources(list);
+                Interlocked.Increment(ref _fileSourceChanges);
+            }
         }
 
         /// <summary>User action: give back all held memory now. Growth resumes by the normal rules.</summary>
@@ -255,7 +275,7 @@ namespace MoreUseResources.Core
             bool mayAudit = !releasing && auditWork && AuditReadAllowed() && memory.FromOperatingSystem
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
             _assetScanAllowed = mayRead || mayAudit;
-            if (_assetScanAllowed) QueueAssetScan();
+            if (_assetScanAllowed) QueueAssetScan(s.AssetDiscoveryRescanMinutes);
             _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes,
                 allowCopies: plan.Ram.Active, refreshIntervalMs: s.RamPrefetchRefreshMinutes * 60_000L);
             _assetAudit.Pump(mayAudit, Math.Max(1, workers), s.CpuAuditRescanMinutes * 60_000L);
@@ -314,9 +334,19 @@ namespace MoreUseResources.Core
                 && (!SavingInProgress() || s.RamPhases[(int)GamePhase.Saving]);
         }
 
-        private void QueueAssetScan()
+        private void QueueAssetScan(int rescanMinutes)
         {
-            if (_assetFolders == null || Interlocked.CompareExchange(ref _assetScan, 1, 0) != 0) return;
+            if (_assetFolders == null) return;
+            int state = Volatile.Read(ref _assetScan);
+            if (state == 1) return; // exactly one live scanner at a time
+            long now = _assetClockMs();
+            if (state == 2)
+            {
+                long last = Interlocked.Read(ref _lastAssetDiscoveryAtMs);
+                if (rescanMinutes <= 0 || now < last || now - last < rescanMinutes * 60_000L)
+                    return;
+            }
+            if (Interlocked.CompareExchange(ref _assetScan, 1, state) != state) return;
             _pool.Enqueue(token =>
             {
                 try
@@ -326,11 +356,14 @@ namespace MoreUseResources.Core
                     if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
                     {
                         SetFileSources(files);
+                        Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
+                        Interlocked.Increment(ref _assetDiscoveryPasses);
                         Volatile.Write(ref _assetScan, 2);
                     }
                 }
                 finally
                 {
+                    // Interrupted scans reset to idle and will be retried on the next allowed tick.
                     Interlocked.CompareExchange(ref _assetScan, 0, 1);
                 }
             });
@@ -414,6 +447,8 @@ namespace MoreUseResources.Core
                 FileErrors = _fileCache.Errors,
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
                 FilePassComplete = _fileCache.PassComplete,
+                FileDiscoveryPasses = Volatile.Read(ref _assetDiscoveryPasses),
+                FileSourceChanges = Volatile.Read(ref _fileSourceChanges),
                 FileRefreshPasses = _fileCache.PeriodicRefreshes,
                 AuditSources = audit.Sources,
                 AuditCompleted = audit.Completed,
