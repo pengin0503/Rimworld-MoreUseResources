@@ -229,6 +229,24 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void User_can_expand_prewarmer_to_2048_or_4096_pixel_real_textures()
+        {
+            const long MiB = 1L << 20;
+            var budget = new VramInfo(1024 * MiB, 16L << 30, true);
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(budget, 2048, 2048, 60, 2048 * MiB));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(budget, 2048, 2048, 60, 2048 * MiB, 2048));
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(budget, 4096, 4096, 60, 2048 * MiB, 2048));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(budget, 4096, 4096, 60, 2048 * MiB, 4096));
+            var nearCap = new VramInfo(budget.CapBytes(60, 2048 * MiB) - 64 * MiB, 16L << 30, true);
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(nearCap, 4096, 4096, 60, 2048 * MiB, 4096));
+        }
+
+        [Fact]
         public void Gpu_backlog_is_bounded_and_fifo()
         {
             var backlog = new PrewarmDeferredQueue<Tex>(2);
