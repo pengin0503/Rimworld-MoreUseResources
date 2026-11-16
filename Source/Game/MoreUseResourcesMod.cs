@@ -86,6 +86,7 @@ public sealed class MoreUseResourcesMod : Mod
 
         TexturePrewarm gpu = runtime.Gpu;
         list.Label("MUR_GpuStatus".Translate(gpu.StatusKey.Translate().ToString(), gpu.Uploaded));
+        list.Label("MUR_GpuMaintenanceStatus".Translate(gpu.PassesCompleted));
         list.Label("MUR_GpuQueueStatus".Translate(gpu.DeferredCount, gpu.DroppedDeferred,
             gpu.RejectedTextures, gpu.FailedUploads));
         if (gpu.Memory.DriverReported)
@@ -209,6 +210,7 @@ public sealed class MoreUseResourcesMod : Mod
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);
             Slider(list, "MUR_GpuFrameBudget", ref s.GpuFrameBudgetTenthMs, 2, 80, 1);
+            Slider(list, "MUR_GpuRefreshInterval", ref s.GpuRefreshSeconds, 0, 600, 10);
         }
         else list.Label("MUR_GpuUnsupported".Translate());
         list.Label("MUR_GpuHint".Translate());
