@@ -81,6 +81,9 @@ public sealed class MoreUseResourcesMod : Mod
         list.Label("MUR_XmlAuditStatus".Translate(status.XmlFilesChecked, status.XmlDefinitions,
             status.XmlDefinitionCollisions, status.XmlParseFailures, status.XmlFilesSkipped,
             status.XmlKeysOmitted));
+        list.Label("MUR_TextureAuditStatus".Translate(status.TextureFilesChecked, status.TextureFilesValid,
+            status.TextureFilesMalformed, status.TextureFilesSkipped,
+            InMiB(status.TextureRgba8EquivalentBytes), InMiB(status.TextureBytesValidated)));
         if (status.Memory.FromOperatingSystem)
             list.Label("MUR_MemoryStatus".Translate(InMiB(status.ProcessWorkingSet), InMiB(status.Memory.AvailablePhysical),
                 ("MUR_Memory" + status.MemoryState).Translate().ToString()));
