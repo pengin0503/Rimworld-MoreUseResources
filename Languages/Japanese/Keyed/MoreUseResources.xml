@@ -47,6 +47,7 @@
   <MUR_CpuAuditInterval>アセット再検査間隔 {0} 分（0で無効）</MUR_CpuAuditInterval>
   <MUR_AuditRescanStatus>アセット検査の完了回数 {0} ／ 内容変更を検出したファイル {1} 件</MUR_AuditRescanStatus>
   <MUR_XmlAuditStatus>XML解析 {0} ファイル ／ Def {1} 個 ／ Def名の重複候補 {2} 件 ／ XML解析失敗 {3} ／ 容量超過で対象外 {4} ／ 索引上限で省略 {5}</MUR_XmlAuditStatus>
+  <MUR_TextureAuditStatus>画像検査 PNG/DDS {0} 件 ／ 正常な構造・ヘッダー {1} ／ 不正 {2} ／ 容量超過 {3} ／ RGBA8換算 {4} MiB ／ 検査バイト {5} MiB</MUR_TextureAuditStatus>
   <MUR_Workers>最大CPUワーカー数 {0}（0は自動）</MUR_Workers>
   <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
   <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
