@@ -74,6 +74,62 @@ namespace MoreUseResources.Tests
             Assert.Equal(2, audit.Snapshot.Completed);
         }
 
+
+        [Fact]
+        public void Periodic_pass_rehashes_real_assets_and_detects_same_size_modifications()
+        {
+            using var directory = new TemporaryDirectory();
+            string path = directory.Write("Defs/one.xml", "<Defs><One/></Defs>");
+            long now = 1000;
+            using var pool = new WorkerPool(2);
+            pool.Configure(2, true, false, 1, ThreadPriority.Lowest);
+            var audit = new AssetAudit(pool, clockMs: () => Interlocked.Read(ref now));
+            audit.SetSources(new[] { path });
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 2, rescanIntervalMs: 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(0, audit.Snapshot.ChangedFiles);
+
+            directory.Write("Defs/one.xml", "<Defs><Two/></Defs>");
+            Interlocked.Exchange(ref now, 2100);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 2, rescanIntervalMs: 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 2;
+            }, TimeSpan.FromSeconds(10)));
+            AssetAuditSnapshot status = audit.Snapshot;
+            Assert.Equal(1, status.ChangedFiles);
+            Assert.Equal(1, status.Completed);
+            Assert.Equal(2, status.PassesCompleted);
+        }
+
+        [Fact]
+        public void Rescan_disabled_keeps_completed_pass_without_more_io()
+        {
+            using var directory = new TemporaryDirectory();
+            string path = directory.Write("Defs/one.xml", "<Defs />");
+            long now = 1000;
+            using var pool = new WorkerPool(1);
+            pool.Configure(1, true, false, 1, ThreadPriority.Lowest);
+            var audit = new AssetAudit(pool, clockMs: () => Interlocked.Read(ref now));
+            audit.SetSources(new[] { path });
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 1, rescanIntervalMs: 0);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 1;
+            }, TimeSpan.FromSeconds(10)));
+            directory.Write("Defs/one.xml", "<Defs2/>");
+            Interlocked.Exchange(ref now, 100000);
+            for (int i = 0; i < 10; i++) audit.Pump(true, 1, rescanIntervalMs: 0);
+            Assert.Equal(1, audit.Snapshot.PassesCompleted);
+            Assert.Equal(0, audit.Snapshot.ChangedFiles);
+        }
+
         private sealed class TemporaryDirectory : IDisposable
         {
             public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mur-audit-" + Guid.NewGuid().ToString("N"));
