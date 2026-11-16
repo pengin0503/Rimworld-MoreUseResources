@@ -313,6 +313,51 @@ namespace MoreUseResources.Tests
         }
     }
 
+    public class TextureRefreshScheduleTests
+    {
+        [Fact]
+        public void Refresh_only_after_completed_pass_and_elapsed_interval()
+        {
+            var schedule = new TextureRefreshSchedule();
+            Assert.False(schedule.ShouldRefresh(10_000, 30));
+            schedule.MarkPassCompleted(10_000);
+            Assert.Equal(1, schedule.PassesCompleted);
+            Assert.False(schedule.ShouldRefresh(39_999, 30));
+            Assert.True(schedule.ShouldRefresh(40_000, 30));
+            schedule.BeginNextPass();
+            Assert.False(schedule.ShouldRefresh(60_000, 30));
+            schedule.MarkPassCompleted(60_000);
+            Assert.Equal(2, schedule.PassesCompleted);
+            Assert.False(schedule.ShouldRefresh(89_999, 30));
+            Assert.True(schedule.ShouldRefresh(90_000, 30));
+        }
+
+        [Fact]
+        public void Refresh_can_be_disabled_and_survives_clock_regression()
+        {
+            var schedule = new TextureRefreshSchedule();
+            schedule.MarkPassCompleted(100_000);
+            Assert.False(schedule.ShouldRefresh(999_999, 0));
+            Assert.False(schedule.ShouldRefresh(5_000, 30));
+            Assert.False(schedule.ShouldRefresh(34_999, 30));
+            Assert.True(schedule.ShouldRefresh(35_000, 30));
+        }
+
+        [Fact]
+        public void Invalidating_scan_does_not_reset_lifetime_pass_count()
+        {
+            var schedule = new TextureRefreshSchedule();
+            schedule.MarkPassCompleted(0);
+            schedule.BeginNextPass();
+            schedule.MarkPassCompleted(50_000);
+            Assert.Equal(2, schedule.PassesCompleted);
+            schedule.BeginNextPass();
+            Assert.False(schedule.ShouldRefresh(100_000, 30));
+            schedule.MarkPassCompleted(101_000);
+            Assert.Equal(3, schedule.PassesCompleted);
+        }
+    }
+
     public class VramReserveTests
     {
         private const long MiB = 1L << 20;
