@@ -42,6 +42,13 @@ namespace MoreUseResources.Core
         public int FileDiscoveryPasses;
         /// <summary>Engine texture-cache and asset packs included in the prefetch list.</summary>
         public int EnginePackFiles;
+        public int ResidentPackSources;
+        public int ResidentPackFiles;
+        public long ResidentPackBytes;
+        public int ResidentPackPasses;
+        public int ResidentPacksDeferred;
+        public long ResidentPackErrors;
+        public string? ResidentPackLastError;
         public int FileSourceChanges;
         public int FileRefreshPasses;
         public int AuditSources;
@@ -106,6 +113,7 @@ namespace MoreUseResources.Core
         private readonly MemoryGovernor _governor;
         private readonly FileCache _fileCache;
         private readonly AssetAudit _assetAudit;
+        private readonly MappedPackResidency _packResidency;
         private readonly GcTuner _gc = new GcTuner();
         private readonly ProcessPriorityTuner _priority = new ProcessPriorityTuner();
         private readonly FrameGuard _frameGuard = new FrameGuard();
@@ -145,6 +153,7 @@ namespace MoreUseResources.Core
             _governor = new MemoryGovernor(probe, _cacheStore, _reserveStore);
             _fileCache = new FileCache(_cacheStore, _pool, mayRead: FileReadAllowed, mayCopy: RamCopyAllowed);
             _assetAudit = new AssetAudit(_pool, mayRun: AuditReadAllowed);
+            _packResidency = new MappedPackResidency(_pool);
             _signals = new RawGameSignals { Focused = true };
             _plan = ActivationPlanner.Plan(_settings, new PhaseSnapshot(GamePhase.Startup, PhaseModifiers.None), ManualMode.Auto);
         }
@@ -219,12 +228,17 @@ namespace MoreUseResources.Core
             var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var looseSet = new HashSet<string>(list, comparer);
             var prefetch = new List<string>();
+            var assetPacks = new List<string>();
             if (enginePacks != null)
             {
                 var packSet = new HashSet<string>(comparer);
                 foreach (string pack in enginePacks)
                 {
-                    if (!string.IsNullOrEmpty(pack) && !looseSet.Contains(pack) && packSet.Add(pack)) prefetch.Add(pack);
+                    if (string.IsNullOrEmpty(pack) || looseSet.Contains(pack) || !packSet.Add(pack)) continue;
+                    prefetch.Add(pack);
+                    // Only the read-only asset packs may be mapped; the engine rewrites its cache packs.
+                    if (string.Equals(Path.GetFileName(pack), EnginePackFiles.AssetPackFileName, StringComparison.OrdinalIgnoreCase))
+                        assetPacks.Add(pack);
                 }
             }
             int packCount = prefetch.Count;
@@ -238,6 +252,7 @@ namespace MoreUseResources.Core
                 _knownSources = set;
                 Volatile.Write(ref _enginePackFiles, packCount);
                 _fileCache.SetSources(prefetch);
+                _packResidency.SetSources(assetPacks);
                 // A new or removed engine pack does not invalidate audit results of loose assets.
                 if (_knownLooseSources == null || !_knownLooseSources.SetEquals(looseSet))
                 {
@@ -299,6 +314,14 @@ namespace MoreUseResources.Core
                 _reserveStore.ReleaseAll();
             }
             MemoryStatus memory = _governor.LastStatus;
+            bool memoryOk = memory.FromOperatingSystem
+                && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            bool residentWanted = s.Enabled && s.RamEnabled && s.RamFileCache && s.RamResidentPacks;
+            // Views are given back when the feature is off, on the user's release request and under memory pressure.
+            bool releaseInactive = !plan.Ram.Active && s.ReleaseWhenInactive;
+            if (releasing || !residentWanted || !memoryOk || releaseInactive) _packResidency.ReleaseAll();
+            _packResidency.Pump(!releasing && residentWanted && memoryOk && fileWork && plan.Ram.Active && FileReadAllowed(),
+                s.RamResidentPackMiB * ResourceSettings.MiB, s.RamPrefetchRefreshMinutes * 60_000L);
             bool mayRead = !releasing && fileWork && FileReadAllowed() && memory.FromOperatingSystem
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
             bool mayAudit = !releasing && auditWork && AuditReadAllowed() && memory.FromOperatingSystem
@@ -441,6 +464,7 @@ namespace MoreUseResources.Core
         public ControllerStatus GetStatus()
         {
             AssetAuditSnapshot audit = _assetAudit.Snapshot;
+            PackResidencySnapshot resident = _packResidency.Snapshot;
             long now = Environment.TickCount64;
             if (now - _lastPrivateStamp > 1000)
             {
@@ -486,6 +510,13 @@ namespace MoreUseResources.Core
                 FilePassComplete = _fileCache.PassComplete,
                 FileDiscoveryPasses = Volatile.Read(ref _assetDiscoveryPasses),
                 EnginePackFiles = Volatile.Read(ref _enginePackFiles),
+                ResidentPackSources = resident.Sources,
+                ResidentPackFiles = resident.MappedFiles,
+                ResidentPackBytes = resident.MappedBytes,
+                ResidentPackPasses = resident.Passes,
+                ResidentPacksDeferred = resident.Deferred,
+                ResidentPackErrors = resident.Errors,
+                ResidentPackLastError = resident.LastError,
                 FileSourceChanges = Volatile.Read(ref _fileSourceChanges),
                 FileRefreshPasses = _fileCache.PeriodicRefreshes,
                 AuditSources = audit.Sources,
@@ -539,6 +570,7 @@ namespace MoreUseResources.Core
             {
                 thread.Join(1500);
             }
+            _packResidency.Dispose();
             _pool.Dispose();
             _gc.Apply(false);
             _priority.Apply(ProcessPriorityChoice.Unchanged);

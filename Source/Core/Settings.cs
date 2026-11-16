@@ -90,6 +90,9 @@ namespace MoreUseResources.Core
         public bool RamHoldCopies = true;
         public int RamFileCacheMiB = 4096;
         public int RamMinFreeMiB = 6144;
+        /// <summary>Map the game's read-only Assets.zip packs and keep their pages in this process.</summary>
+        public bool RamResidentPacks = false;
+        public int RamResidentPackMiB = 2048;
         public bool RamReserve = false;
         public int RamReserveMiB = 4096;
         public bool RamGcLowLatency = false;
@@ -199,6 +202,7 @@ namespace MoreUseResources.Core
             RamPrefetchRefreshMinutes = Math.Clamp(RamPrefetchRefreshMinutes, 0, 120);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
             RamReserveMiB = Math.Clamp(RamReserveMiB, 64, 262144);
+            RamResidentPackMiB = Math.Clamp(RamResidentPackMiB, 64, 65536);
             GpuTargetPercent = Math.Clamp(GpuTargetPercent, 10, MaxGpuTargetPercent);
             GpuKeepFreeMiB = Math.Clamp(GpuKeepFreeMiB, 512, 65536);
             GpuFrameBudgetTenthMs = Math.Clamp(GpuFrameBudgetTenthMs, 2, 80);

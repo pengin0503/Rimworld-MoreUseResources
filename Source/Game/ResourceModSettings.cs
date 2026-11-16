@@ -45,6 +45,8 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.RamHoldCopies, "holdCopies", Defaults.RamHoldCopies);
         Scribe_Values.Look(ref Value.RamFileCacheMiB, "cacheMiB", Defaults.RamFileCacheMiB);
         Scribe_Values.Look(ref Value.RamMinFreeMiB, "keepFreeMiB", Defaults.RamMinFreeMiB);
+        Scribe_Values.Look(ref Value.RamResidentPacks, "residentPacks", Defaults.RamResidentPacks);
+        Scribe_Values.Look(ref Value.RamResidentPackMiB, "residentPackMiB", Defaults.RamResidentPackMiB);
         Scribe_Values.Look(ref Value.RamReserve, "ramReserve", Defaults.RamReserve);
         Scribe_Values.Look(ref Value.RamReserveMiB, "reserveMiB", Defaults.RamReserveMiB);
 

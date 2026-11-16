@@ -78,6 +78,8 @@ public sealed class MoreUseResourcesMod : Mod
         list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
         list.Label("MUR_FileDiscoveryStatus".Translate(status.FileDiscoveryPasses, status.FileSourceChanges));
         list.Label("MUR_EnginePackStatus".Translate(status.EnginePackFiles));
+        list.Label("MUR_ResidentPackStatus".Translate(status.ResidentPackFiles, status.ResidentPackSources,
+            InMiB(status.ResidentPackBytes), status.ResidentPackPasses, status.ResidentPacksDeferred, status.ResidentPackErrors));
         list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
             InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));
@@ -210,6 +212,8 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
+        Toggle(list, "MUR_ResidentPacks", ref s.RamResidentPacks);
+        Slider(list, "MUR_ResidentPackLimit", ref s.RamResidentPackMiB, 64, 16384, 64);
         Toggle(list, "MUR_RamReserve", ref s.RamReserve);
         Slider(list, "MUR_RamReserveLimit", ref s.RamReserveMiB, 64, 8192, 64);
         Slider(list, "MUR_RamKeepFree", ref s.RamMinFreeMiB, 1024, 32768, 256);

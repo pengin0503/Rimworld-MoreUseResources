@@ -57,6 +57,9 @@
   <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_FileDiscoveryStatus>MODアセット一覧の探索完了 {0} 回 ／ 一覧更新 {1} 回</MUR_FileDiscoveryStatus>
   <MUR_EnginePackStatus>先読み対象のエンジン用テクスチャキャッシュ・アセットパック {0} 個</MUR_EnginePackStatus>
+  <MUR_ResidentPackStatus>RAM常駐アセットパック {0}/{1} 個 ／ マップ済み {2} MiB ／ 巡回 {3} 回 ／ 上限超過 {4} 個 ／ エラー {5} 件</MUR_ResidentPackStatus>
+  <MUR_ResidentPacks>実験機能：Assets.zip をRAMに常駐させる（ファイル先読みが必要。エンジンと同じ読み取り専用ファイルをマップします。高速化は保証されません）</MUR_ResidentPacks>
+  <MUR_ResidentPackLimit>RAM常駐アセットパックの上限 (MiB)</MUR_ResidentPackLimit>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
