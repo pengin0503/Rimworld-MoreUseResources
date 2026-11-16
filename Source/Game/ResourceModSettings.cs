@@ -50,6 +50,7 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.GpuTargetPercent, "vramTargetPercent", Defaults.GpuTargetPercent);
         Scribe_Values.Look(ref Value.GpuKeepFreeMiB, "vramKeepFreeMiB", Defaults.GpuKeepFreeMiB);
         Scribe_Values.Look(ref Value.GpuFrameBudgetTenthMs, "gpuFrameBudgetTenthMs", Defaults.GpuFrameBudgetTenthMs);
+        Scribe_Values.Look(ref Value.GpuRefreshSeconds, "gpuRefreshSeconds", Defaults.GpuRefreshSeconds);
 
         for (int i = 0; i < ResourceSettings.PhaseCount; i++)
         {
