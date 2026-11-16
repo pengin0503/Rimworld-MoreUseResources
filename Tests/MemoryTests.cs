@@ -523,6 +523,30 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Unchanged_live_file_keeps_its_native_copy_across_periodic_refresh()
+        {
+            string unchanged = MakeFile("unchanged.bin", 120_000);
+            long now = 1000;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { unchanged });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 200_000);
+            Assert.Equal(120_000, store.CommittedBytes);
+            Interlocked.Exchange(ref now, 61_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 200_000, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(120_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+            Assert.Equal(2, cache.FilesRead);
+        }
+
+        [Fact]
         public void Released_files_are_read_again_only_after_cooldown()
         {
             string a = MakeFile("a.bin", 200_000);
