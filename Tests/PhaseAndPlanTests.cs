@@ -199,6 +199,18 @@ namespace MoreUseResources.Tests
             Assert.Equal(expected, s.RamPrefetchRefreshMinutes);
         }
 
+        [Theory]
+        [InlineData(-5, 0)]
+        [InlineData(0, 0)]
+        [InlineData(10, 10)]
+        [InlineData(180, 120)]
+        public void File_discovery_refresh_interval_is_safely_clamped(int given, int expected)
+        {
+            var settings = new ResourceSettings { AssetDiscoveryRescanMinutes = given };
+            settings.Clamp();
+            Assert.Equal(expected, settings.AssetDiscoveryRescanMinutes);
+        }
+
         [Fact]
         public void Clone_is_deep()
         {
