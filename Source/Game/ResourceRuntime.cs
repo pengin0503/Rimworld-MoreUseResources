@@ -17,6 +17,7 @@ internal sealed class ResourceRuntime
     private static ResourceRuntime? instance;
     private readonly ResourceController controller;
     private readonly TexturePrewarm gpu = new();
+    private readonly PerformanceMeter performance = new();
     private ResourceSettings settings;
     private int savingDepth;
     private int stopped;
@@ -34,6 +35,7 @@ internal sealed class ResourceRuntime
 
     internal bool HooksReady { get; private set; }
     internal TexturePrewarm Gpu => gpu;
+    internal PerformanceSnapshot Performance => performance.Latest;
     internal ControllerStatus Status => controller.GetStatus();
     internal ManualMode Manual { get => controller.Manual; set => controller.Manual = value; }
     internal bool Faulted => faulted;
@@ -149,7 +151,9 @@ internal sealed class ResourceRuntime
             controller.PublishSignals(signals);
             if (!endOfUpdate) return;
 
-            controller.ReportFrame(Time.unscaledDeltaTime * 1000);
+            double frameIntervalMs = Time.unscaledDeltaTime * 1000;
+            controller.ReportFrame(frameIntervalMs);
+            performance.Sample(now, ticks?.TicksGame, frameIntervalMs);
             // Use the frame's live phase here, not the controller's previous 50 ms sample.
             signals.Saving = Volatile.Read(ref savingDepth) > 0;
             var phase = PhaseResolver.Resolve(signals, settings.IdleBoost ? settings.IdleSeconds : 0);
