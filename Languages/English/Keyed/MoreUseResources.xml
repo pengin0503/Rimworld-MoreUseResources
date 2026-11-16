@@ -1,0 +1,81 @@
+<?xml version='1.0' encoding='utf-8'?>
+<LanguageData>
+  <MUR_Name>More Use Resources</MUR_Name>
+  <MUR_HooksUnavailable>Runtime hooks failed to start or were stopped. Details are in Player.log.</MUR_HooksUnavailable>
+  <MUR_BackgroundError>A background task reported an error.</MUR_BackgroundError>
+  <MUR_CurrentPhase>Phase {0} · Mode {1}</MUR_CurrentPhase>
+  <MUR_CpuStatus>CPU {0} · Worker slots {1} · Queued jobs {2}</MUR_CpuStatus>
+  <MUR_RamStatus>RAM {0} · File copies {1} MiB · Reserved {2} MiB</MUR_RamStatus>
+  <MUR_PrefetchStatus>Prefetch {0}/{1} · Read {2} files ({3} MiB) · Errors {4} · Budget skips {5}</MUR_PrefetchStatus>
+  <MUR_MemoryStatus>Game working set {0} MiB · OS available {1} MiB · Governor {2}</MUR_MemoryStatus>
+  <MUR_NoMemoryProbe>Waiting for an OS memory sample. RAM growth and file prefetch require a valid sample.</MUR_NoMemoryProbe>
+  <MUR_GpuStatus>GPU {0} · Prewarmed textures {1}</MUR_GpuStatus>
+  <MUR_GpuBudgetStatus>GPU last driver sample {0} MiB used / {1} MiB budget</MUR_GpuBudgetStatus>
+  <MUR_Auto>Auto</MUR_Auto>
+  <MUR_ForceRun>Run now</MUR_ForceRun>
+  <MUR_Paused>Pause</MUR_Paused>
+  <MUR_ReleaseRam>Release RAM</MUR_ReleaseRam>
+  <MUR_ManualHint>Run now overrides phase checkboxes and uses 100% intensity. Save rules, focus rules, and resource limits still apply. Release RAM pauses the mod until resumed.</MUR_ManualHint>
+  <MUR_Enabled>Enable resource use</MUR_Enabled>
+  <MUR_WorldAllowed>Allow in world and caravan view</MUR_WorldAllowed>
+  <MUR_UnfocusedAllowed>Allow when the game loses focus</MUR_UnfocusedAllowed>
+  <MUR_ReleaseInactive>Release held RAM in inactive phases</MUR_ReleaseInactive>
+  <MUR_IdleBoost>Increase intensity when idle</MUR_IdleBoost>
+  <MUR_IdleSeconds>Idle delay {0} seconds</MUR_IdleSeconds>
+  <MUR_FrameGuard>Frame-time backoff threshold {0} ms (0 disables it)</MUR_FrameGuard>
+  <MUR_Phases>Per-phase activation</MUR_Phases>
+  <MUR_PhaseHeading>Phase</MUR_PhaseHeading>
+  <MUR_Intensity>Intensity</MUR_Intensity>
+  <MUR_PresetConservative>Conservative</MUR_PresetConservative>
+  <MUR_PresetStandard>Standard</MUR_PresetStandard>
+  <MUR_PresetAggressive>Aggressive</MUR_PresetAggressive>
+  <MUR_PhaseStartup>Startup</MUR_PhaseStartup>
+  <MUR_PhaseMainMenu>Title screen</MUR_PhaseMainMenu>
+  <MUR_PhaseLoading>Load / map generation</MUR_PhaseLoading>
+  <MUR_PhasePlayingNormal>Normal speed</MUR_PhasePlayingNormal>
+  <MUR_PhasePlayingFast>Fast speed</MUR_PhasePlayingFast>
+  <MUR_PhasePaused>Game paused</MUR_PhasePaused>
+  <MUR_PhaseSaving>Saving / autosaving</MUR_PhaseSaving>
+  <MUR_PhaseQuitting>Quitting</MUR_PhaseQuitting>
+  <MUR_CpuEnabled>Allow CPU workers</MUR_CpuEnabled>
+  <MUR_Workers>Maximum CPU workers {0} (0 = automatic)</MUR_Workers>
+  <MUR_Synthetic>Generate extra CPU load (experimental, can slow the game)</MUR_Synthetic>
+  <MUR_Duty>Synthetic CPU duty cycle {0}%</MUR_Duty>
+  <MUR_PrefetchEnabled>Prefetch enabled mod assets into the OS file cache</MUR_PrefetchEnabled>
+  <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
+  <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
+  <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>
+  <MUR_RamReserve>Reserve extra RAM (experimental)</MUR_RamReserve>
+  <MUR_RamReserveLimit>RAM reservation target {0} MiB</MUR_RamReserveLimit>
+  <MUR_RamKeepFree>Minimum OS available memory {0} MiB</MUR_RamKeepFree>
+  <MUR_GpuEnabled>Enable Waylith texture prewarming (experimental)</MUR_GpuEnabled>
+  <MUR_GpuTarget>Maximum target {0}% of the driver budget</MUR_GpuTarget>
+  <MUR_GpuKeepFree>VRAM headroom {0} MiB</MUR_GpuKeepFree>
+  <MUR_GpuFrameBudget>Time slice {0} × 0.1 ms</MUR_GpuFrameBudget>
+  <MUR_GpuHint>Texture prewarming requires a discrete GPU and a reported Vulkan heap budget during steady frames. Waylith manages uploaded textures.</MUR_GpuHint>
+  <MUR_GpuUnsupported>Texture prewarming is available on Windows 1.7.5011 rev24.</MUR_GpuUnsupported>
+  <MUR_GpuDisabled>Off</MUR_GpuDisabled>
+  <MUR_GpuWaiting>Waiting for a steady frame</MUR_GpuWaiting>
+  <MUR_GpuNoBudget>Compatible driver budget unavailable</MUR_GpuNoBudget>
+  <MUR_GpuAtTarget>Waiting for VRAM headroom</MUR_GpuAtTarget>
+  <MUR_GpuWorking>Scanning / prewarming</MUR_GpuWorking>
+  <MUR_GpuComplete>Pass complete</MUR_GpuComplete>
+  <MUR_GpuFault>Stopped after an error</MUR_GpuFault>
+  <MUR_ReasonActive>Allowed</MUR_ReasonActive>
+  <MUR_ReasonForcedByUser>Manual</MUR_ReasonForcedByUser>
+  <MUR_ReasonMasterOff>Mod disabled</MUR_ReasonMasterOff>
+  <MUR_ReasonResourceOff>Resource disabled</MUR_ReasonResourceOff>
+  <MUR_ReasonPhaseOff>Phase disabled</MUR_ReasonPhaseOff>
+  <MUR_ReasonPausedByUser>Paused manually</MUR_ReasonPausedByUser>
+  <MUR_ReasonUnfocused>Unfocused</MUR_ReasonUnfocused>
+  <MUR_ReasonWorldViewOff>World view excluded</MUR_ReasonWorldViewOff>
+  <MUR_ReasonQuitting>Quitting</MUR_ReasonQuitting>
+  <MUR_ReasonFrameGuard>Backing off for frame time</MUR_ReasonFrameGuard>
+  <MUR_ReasonUnavailable>Unavailable</MUR_ReasonUnavailable>
+  <MUR_ReasonFaulted>Stopped after an error</MUR_ReasonFaulted>
+  <MUR_MemoryIdle>Idle</MUR_MemoryIdle>
+  <MUR_MemoryGrowing>Growing</MUR_MemoryGrowing>
+  <MUR_MemoryAtTarget>At target</MUR_MemoryAtTarget>
+  <MUR_MemoryLimitedByFreeMemory>Waiting for available RAM</MUR_MemoryLimitedByFreeMemory>
+  <MUR_MemoryPressure>Releasing under memory pressure</MUR_MemoryPressure>
+</LanguageData>

@@ -1,0 +1,81 @@
+<?xml version='1.0' encoding='utf-8'?>
+<LanguageData>
+  <MUR_Name>More Use Resources</MUR_Name>
+  <MUR_HooksUnavailable>起動時の接続に失敗したか、実行中に停止しました。詳細は Player.log に記録されます。</MUR_HooksUnavailable>
+  <MUR_BackgroundError>バックグラウンド処理でエラーが発生しました。</MUR_BackgroundError>
+  <MUR_CurrentPhase>フェーズ {0} ／ モード {1}</MUR_CurrentPhase>
+  <MUR_CpuStatus>CPU {0} ／ ワーカー枠 {1} ／ 待機ジョブ {2}</MUR_CpuStatus>
+  <MUR_RamStatus>RAM {0} ／ ファイルコピー {1} MiB ／ 予約 {2} MiB</MUR_RamStatus>
+  <MUR_PrefetchStatus>先読み {0}/{1} ／ 完了 {2} ファイル（{3} MiB） ／ エラー {4} ／ 予算超過 {5}</MUR_PrefetchStatus>
+  <MUR_MemoryStatus>ゲームのワーキングセット {0} MiB ／ OS使用可能 {1} MiB ／ メモリ制御 {2}</MUR_MemoryStatus>
+  <MUR_NoMemoryProbe>OSのメモリ情報を確認できるまで、RAMの追加確保と先読みを停止します。</MUR_NoMemoryProbe>
+  <MUR_GpuStatus>GPU {0} ／ 先読み済みテクスチャ {1}</MUR_GpuStatus>
+  <MUR_GpuBudgetStatus>GPUの最終計測値 使用 {0} MiB ／ ドライバー予算 {1} MiB</MUR_GpuBudgetStatus>
+  <MUR_Auto>自動</MUR_Auto>
+  <MUR_ForceRun>今すぐ実行</MUR_ForceRun>
+  <MUR_Paused>一時停止</MUR_Paused>
+  <MUR_ReleaseRam>RAM解放</MUR_ReleaseRam>
+  <MUR_ManualHint>「今すぐ実行」はフェーズ設定を一時的に上書きして強度100%で動作します。セーブ・フォーカスの条件と各上限は有効です。「RAM解放」後は一時停止します。</MUR_ManualHint>
+  <MUR_Enabled>リソース活用を有効化</MUR_Enabled>
+  <MUR_WorldAllowed>ワールド・キャラバン画面でも実行</MUR_WorldAllowed>
+  <MUR_UnfocusedAllowed>ウィンドウが非アクティブでも実行</MUR_UnfocusedAllowed>
+  <MUR_ReleaseInactive>非実行フェーズで保持RAMを解放</MUR_ReleaseInactive>
+  <MUR_IdleBoost>アイドル時に強度を上げる</MUR_IdleBoost>
+  <MUR_IdleSeconds>アイドル判定まで {0} 秒</MUR_IdleSeconds>
+  <MUR_FrameGuard>負荷を抑えるフレーム時間 {0} ms（0で無効）</MUR_FrameGuard>
+  <MUR_Phases>フェーズ別の有効化</MUR_Phases>
+  <MUR_PhaseHeading>フェーズ</MUR_PhaseHeading>
+  <MUR_Intensity>強度</MUR_Intensity>
+  <MUR_PresetConservative>控えめ</MUR_PresetConservative>
+  <MUR_PresetStandard>標準</MUR_PresetStandard>
+  <MUR_PresetAggressive>積極的</MUR_PresetAggressive>
+  <MUR_PhaseStartup>起動時</MUR_PhaseStartup>
+  <MUR_PhaseMainMenu>タイトル画面</MUR_PhaseMainMenu>
+  <MUR_PhaseLoading>ロード・マップ生成</MUR_PhaseLoading>
+  <MUR_PhasePlayingNormal>通常プレイ</MUR_PhasePlayingNormal>
+  <MUR_PhasePlayingFast>高速プレイ</MUR_PhasePlayingFast>
+  <MUR_PhasePaused>ゲームのポーズ中</MUR_PhasePaused>
+  <MUR_PhaseSaving>セーブ・オートセーブ</MUR_PhaseSaving>
+  <MUR_PhaseQuitting>終了処理</MUR_PhaseQuitting>
+  <MUR_CpuEnabled>CPUワーカーを使用</MUR_CpuEnabled>
+  <MUR_Workers>最大CPUワーカー数 {0}（0は自動）</MUR_Workers>
+  <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
+  <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
+  <MUR_PrefetchEnabled>有効なMODのアセットをOSのファイルキャッシュへ先読み</MUR_PrefetchEnabled>
+  <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
+  <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
+  <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
+  <MUR_RamReserve>RAMを追加予約（実験機能）</MUR_RamReserve>
+  <MUR_RamReserveLimit>RAM予約の目標 {0} MiB</MUR_RamReserveLimit>
+  <MUR_RamKeepFree>OSに残す使用可能メモリの下限 {0} MiB</MUR_RamKeepFree>
+  <MUR_GpuEnabled>Waylithテクスチャの先読み（実験機能）</MUR_GpuEnabled>
+  <MUR_GpuTarget>目標上限 ドライバー予算の {0}%</MUR_GpuTarget>
+  <MUR_GpuKeepFree>VRAMに残す余裕 {0} MiB</MUR_GpuKeepFree>
+  <MUR_GpuFrameBudget>1回の処理時間の目安 {0} × 0.1 ms</MUR_GpuFrameBudget>
+  <MUR_GpuHint>テクスチャ先読みは、Vulkanの予算を取得できる単体GPUで、安定したフレーム中に実行します。常駐したテクスチャの管理はWaylithが行います。</MUR_GpuHint>
+  <MUR_GpuUnsupported>テクスチャ先読みの対応版はWindows 1.7.5011 rev24です。</MUR_GpuUnsupported>
+  <MUR_GpuDisabled>無効</MUR_GpuDisabled>
+  <MUR_GpuWaiting>安定したフレーム待ち</MUR_GpuWaiting>
+  <MUR_GpuNoBudget>対応するドライバー予算を取得できません</MUR_GpuNoBudget>
+  <MUR_GpuAtTarget>VRAMの空き待ち</MUR_GpuAtTarget>
+  <MUR_GpuWorking>検索・先読み中</MUR_GpuWorking>
+  <MUR_GpuComplete>先読み完了</MUR_GpuComplete>
+  <MUR_GpuFault>エラーのため停止</MUR_GpuFault>
+  <MUR_ReasonActive>有効</MUR_ReasonActive>
+  <MUR_ReasonForcedByUser>手動実行</MUR_ReasonForcedByUser>
+  <MUR_ReasonMasterOff>全体OFF</MUR_ReasonMasterOff>
+  <MUR_ReasonResourceOff>機能OFF</MUR_ReasonResourceOff>
+  <MUR_ReasonPhaseOff>フェーズOFF</MUR_ReasonPhaseOff>
+  <MUR_ReasonPausedByUser>手動で一時停止</MUR_ReasonPausedByUser>
+  <MUR_ReasonUnfocused>ウィンドウが非アクティブ</MUR_ReasonUnfocused>
+  <MUR_ReasonWorldViewOff>ワールド画面</MUR_ReasonWorldViewOff>
+  <MUR_ReasonQuitting>終了処理中</MUR_ReasonQuitting>
+  <MUR_ReasonFrameGuard>フレーム時間に応じて抑制中</MUR_ReasonFrameGuard>
+  <MUR_ReasonUnavailable>利用不可</MUR_ReasonUnavailable>
+  <MUR_ReasonFaulted>エラーのため停止</MUR_ReasonFaulted>
+  <MUR_MemoryIdle>待機中</MUR_MemoryIdle>
+  <MUR_MemoryGrowing>確保中</MUR_MemoryGrowing>
+  <MUR_MemoryAtTarget>目標到達</MUR_MemoryAtTarget>
+  <MUR_MemoryLimitedByFreeMemory>空きRAM待ち</MUR_MemoryLimitedByFreeMemory>
+  <MUR_MemoryPressure>メモリ圧迫のため解放中</MUR_MemoryPressure>
+</LanguageData>
