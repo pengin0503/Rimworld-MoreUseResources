@@ -8,6 +8,8 @@ public static class HardwareWork
     public static bool MayPrepare(GamePhase phase, bool active, bool throttled, bool memoryOk) =>
         active && !throttled && memoryOk && phase is GamePhase.MainMenu or GamePhase.Paused;
 
+    public static bool YieldJitToWowgag(bool loaded, bool? compiles) => loaded && compiles != false;
+
     public static bool HasFrameBudget(double elapsedMs, int budgetTenthsMs, float intensity) =>
         elapsedMs < budgetTenthsMs * 0.1 * intensity;
 

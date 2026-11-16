@@ -61,6 +61,22 @@ GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い
 
 `-ServerHeapCount` を省略するとランタイム既定のヒープ数を使用します。Waylithのカスタムランタイムで環境変数が適用されるか、GC停止時間が改善するかは実機計測が必要です。[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
 
+## 実アセット積極活用プリセット
+
+MOD設定の **実アセット積極活用プリセットを適用** でワーカー枠を論理CPU数−2に設定し、優先度の低いワーカーでファイル先読みとアセット検査を実行します。通常・高速プレイでは、同じ速度で計測したTPS・フレーム間隔P95を基準に、負荷が高まるとワーカー枠を抑えます。戦闘などで実効ゲーム速度が変わると基準を取り直します。RAMは実際の `Assets.zip` の共有ページに使い、常駐予算を少なくとも4 GiBに引き上げて、6 GiB以上の空きを残すよう監視します。GPU対応環境では、ドライバー予算の最大75%、最低空き2 GiBの範囲で実テクスチャを先読みします。
+
+GPU先読みはエンジンがアトラス作成後に退避させた元画像を除外します。需要優先をONにすると、Waylithが記録した再読み込み履歴を使い、次回の先読み巡回でよく再読み込みされる画像を優先します。本MODのアップロードは順位から差し引きます。WOWGAGのJIT準備が有効な場合は、本MODのJIT準備を休止し、設定画面に理由を表示します。
+
+### 起動前のパック先読みとGPU圧縮
+
+対応ビルドでは、Waylithが選んだキャッシュ世代・エンコード方式・インストールID・MODルートのハッシュを照合してZIPを選びます。アセットパックはエンジンが実際に開いたパスを使います。**起動前の先読み用に使用中のアセットパック一覧を出力** をONにしてタイトル画面まで進むと、RimWorldのユーザーデータフォルダに `MoreUseResources-StartupPacks.json` が作成されます。次回起動時に渡すと、一覧とMOD構成・ファイル情報を照合し、予算内のファイルを先読みします。`-WarmPackBudgetMiB` と `-WarmTimeoutSeconds` で読み取り容量と作業時間の目安を指定できます。
+
+```powershell
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -GpuTextureEncoding -StartupPackManifest "D:\RimWorldUserData\MoreUseResources-StartupPacks.json"
+```
+
+`-GpuTextureEncoding` はそのゲームプロセスの `WAYLITH_LOAD_ENCODE` を `gpu` に設定します。Waylithの条件を満たす画像のブロック圧縮が対象です。対応外の画像はエンジンの通常処理を使い、GPU方式のテクスチャキャッシュには別の名前が使われます。GPU方式で起動した後に作られた一覧を、次回のGPU方式起動で使うとそのキャッシュも先読みできます。
+
 ## ビルドと検証
 
 .NET SDK 10.0.100、NuGet、Python 3を使用します。ゲーム用DLLはRimWorld 1.7.5011の参照パッケージでビルドします。ZIPにはMOD自身のDLL、設定データ、README、任意のGC起動スクリプトが入ります。

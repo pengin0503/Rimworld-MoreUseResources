@@ -29,6 +29,9 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.IdleBoost, "idleBoost", Defaults.IdleBoost);
         Scribe_Values.Look(ref Value.IdleSeconds, "idleSeconds", Defaults.IdleSeconds);
         Scribe_Values.Look(ref Value.FrameGuardMs, "frameGuardMs", Defaults.FrameGuardMs);
+        Scribe_Values.Look(ref Value.ExportStartupPacks, "exportStartupPacks", Defaults.ExportStartupPacks);
+        Scribe_Values.Look(ref Value.AdaptiveWorkers, "adaptiveWorkers", Defaults.AdaptiveWorkers);
+        Scribe_Values.Look(ref Value.GpuDemandPriority, "gpuDemandPriority", Defaults.GpuDemandPriority);
         Scribe_Values.Look(ref Value.RecordLoadTiming, "recordLoadTiming", Defaults.RecordLoadTiming);
         Scribe_Values.Look(ref Value.CachePatchedXml, "cachePatchedXml", Defaults.CachePatchedXml);
         Scribe_Values.Look(ref Value.UncompressedTextureCache, "uncompressedTextureCache", Defaults.UncompressedTextureCache);

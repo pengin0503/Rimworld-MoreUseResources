@@ -153,6 +153,45 @@ namespace MoreUseResources.Tests
             Assert.True(settings.RamHoldCopies);
         }
 
+        [Fact]
+        public void Confirmed_mounts_supersede_guessed_asset_paths()
+        {
+            using var temp = new TemporaryDirectory();
+            string folder = temp.Dir("loadFolder");
+            string guessed = temp.Write(Path.Combine(folder, "Assets.zip"));
+            string mounted = temp.Write(Path.Combine(temp.Path, "Actual.zip"));
+
+            Assert.Equal(new[] { mounted }, EnginePackFiles.Discover(null, Array.Empty<string>(),
+                new[] { folder }, new[] { guessed }, default, mountedPacks: new[] { mounted }));
+            Assert.Empty(EnginePackFiles.Discover(null, Array.Empty<string>(),
+                new[] { folder }, new[] { guessed }, default, mountedPacks: Array.Empty<string>()));
+        }
+
+        [Fact]
+        public void A_new_load_folder_refreshes_sources_when_periodic_discovery_is_disabled()
+        {
+            using var temp = new TemporaryDirectory();
+            string first = temp.Dir("first");
+            string second = temp.Dir("second");
+            temp.Write(Path.Combine(first, "Defs", "one.xml"), "<Defs/>");
+            temp.Write(Path.Combine(second, "Defs", "two.xml"), "<Defs/>");
+            temp.Write(Path.Combine(second, "Defs", "three.xml"), "<Defs/>");
+            using var controller = new ResourceController(new FakeProbe(), 2,
+                initial: new ResourceSettings { AssetDiscoveryRescanMinutes = 0 });
+            controller.PublishSignals(new RawGameSignals { Focused = true, PlayDataLoaded = true });
+            controller.SetAssetFolders(new[] { first });
+            Assert.True(WaitForCount(1));
+            controller.SetAssetFolders(new[] { second });
+            Assert.True(WaitForCount(2));
+
+            bool WaitForCount(int count) => SpinWait.SpinUntil(() =>
+            {
+                controller.ControlTick(true, 0.25);
+                Thread.Sleep(2);
+                return controller.GetStatus().AuditSources == count;
+            }, TimeSpan.FromSeconds(10));
+        }
+
         private sealed class NoProbe : IMemoryProbe
         {
             public MemoryStatus Read() => default;

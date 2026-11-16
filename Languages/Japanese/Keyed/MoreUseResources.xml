@@ -125,4 +125,11 @@
   <MUR_AnisoConflict>グラフィック設定MODが有効なため異方性フィルタの変更を停止</MUR_AnisoConflict>
   <MUR_AnisoStatus>メッシュ用のフィルタ品質を上げたテクスチャ　{0} 件</MUR_AnisoStatus>
   <MUR_RamGcLowLatency>許可されたRAMフェーズでGCの低遅延モードを使う</MUR_RamGcLowLatency>
+  <MUR_AssetBoost>実アセット積極活用プリセットを適用</MUR_AssetBoost>
+  <MUR_StartupPackExport>起動前の先読み用に使用中のアセットパック一覧を出力</MUR_StartupPackExport>
+  <MUR_AdaptiveWorkers>プレイ中の計測に応じてバックグラウンドワーカー数を調整</MUR_AdaptiveWorkers>
+  <MUR_AdaptiveWorkerStatus>フレーム間隔 P95 {0} ms・ワーカー上限 {1}%</MUR_AdaptiveWorkerStatus>
+  <MUR_GpuDemandPriority>ゲームが再読み込みしたテクスチャを優先</MUR_GpuDemandPriority>
+  <MUR_GpuDemandStatus>アトラス元画像の除外 {0} 件・需要順アップロード {1} 件</MUR_GpuDemandStatus>
+  <MUR_JitWowgag>JIT先行コンパイルはWOWGAG側を優先中</MUR_JitWowgag>
 </LanguageData>

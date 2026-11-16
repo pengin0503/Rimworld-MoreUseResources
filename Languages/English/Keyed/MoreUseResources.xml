@@ -125,4 +125,11 @@
   <MUR_AnisoConflict>Anisotropy inactive due to an installed graphics mod</MUR_AnisoConflict>
   <MUR_AnisoStatus>Textures with enhanced mesh filtering: {0}</MUR_AnisoStatus>
   <MUR_RamGcLowLatency>Keep the existing GC low-latency mode enabled in eligible RAM phases</MUR_RamGcLowLatency>
+  <MUR_AssetBoost>Apply the real asset boost preset</MUR_AssetBoost>
+  <MUR_StartupPackExport>Export the active asset packs for optional launch-time prewarming</MUR_StartupPackExport>
+  <MUR_AdaptiveWorkers>Adjust background workers using play performance</MUR_AdaptiveWorkers>
+  <MUR_AdaptiveWorkerStatus>P95 frame interval {0} ms · adaptive worker limit {1}%</MUR_AdaptiveWorkerStatus>
+  <MUR_GpuDemandPriority>Prioritize textures the game actually reloaded</MUR_GpuDemandPriority>
+  <MUR_GpuDemandStatus>Atlas source skips {0} · demand-priority uploads {1}</MUR_GpuDemandStatus>
+  <MUR_JitWowgag>JIT prewarming deferred to WOWGAG</MUR_JitWowgag>
 </LanguageData>

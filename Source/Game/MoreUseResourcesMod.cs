@@ -93,7 +93,9 @@ public sealed class MoreUseResourcesMod : Mod
         }
         if (runtime.GcBaseline != null && (runtime.GcCurrent == null || runtime.GcCurrent.Phase != runtime.GcBaseline.Phase))
             list.Label("MUR_GcComparisonPending".Translate(PhaseName(runtime.GcBaseline.Phase)));
-        if (settings.Value.CpuJitPrewarm)
+        if (settings.Value.CpuJitPrewarm && runtime.JitYieldedToWowgag)
+            list.Label("MUR_JitWowgag".Translate());
+        else if (settings.Value.CpuJitPrewarm)
         {
             JitProgress jit = runtime.Jit;
             list.Label("MUR_JitStatus".Translate(jit.Prepared, jit.Failed, jit.Skipped, jit.WorkMs.ToString("F0"),
@@ -125,11 +127,15 @@ public sealed class MoreUseResourcesMod : Mod
         else
             list.Label("MUR_NoMemoryProbe".Translate());
 
+        if (settings.Value.AdaptiveWorkers)
+            list.Label("MUR_AdaptiveWorkerStatus".Translate(perf.P95FrameIntervalMs, runtime.AdaptiveWorkerPercent));
         TexturePrewarm gpu = runtime.Gpu;
         list.Label("MUR_GpuStatus".Translate(gpu.StatusKey.Translate().ToString(), gpu.Uploaded));
         list.Label("MUR_GpuMaintenanceStatus".Translate(gpu.PassesCompleted));
         list.Label("MUR_GpuQueueStatus".Translate(gpu.DeferredCount, gpu.DroppedDeferred,
             gpu.RejectedTextures, gpu.FailedUploads));
+        if (settings.Value.GpuEnabled)
+            list.Label("MUR_GpuDemandStatus".Translate(gpu.AtlasSourcesSkipped, gpu.PriorityUploads));
         if (gpu.Memory.DriverReported)
             list.Label("MUR_GpuBudgetStatus".Translate(InMiB(gpu.Memory.UsageBytes), InMiB(gpu.Memory.BudgetBytes)));
 
@@ -160,6 +166,12 @@ public sealed class MoreUseResourcesMod : Mod
     private void DrawGeneral(Listing_Standard list, ResourceSettings s)
     {
         Toggle(list, "MUR_Enabled", ref s.Enabled);
+        if (list.ButtonText("MUR_AssetBoost".Translate()))
+        {
+            s.ApplyAssetBoost();
+            runtime.Manual = ManualMode.Auto;
+            changed = true;
+        }
         Toggle(list, "MUR_WorldAllowed", ref s.AllowInWorldView);
         Toggle(list, "MUR_UnfocusedAllowed", ref s.AllowWhenUnfocused);
         Toggle(list, "MUR_ReleaseInactive", ref s.ReleaseWhenInactive);
@@ -169,6 +181,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_RecordLoadTiming", ref s.RecordLoadTiming);
         if (TexturePrewarm.SupportedBuild)
         {
+            Toggle(list, "MUR_StartupPackExport", ref s.ExportStartupPacks);
             Toggle(list, "MUR_CachePatchedXml", ref s.CachePatchedXml);
             Toggle(list, "MUR_UncompressedTextureCache", ref s.UncompressedTextureCache);
         }
@@ -247,6 +260,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
         Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
         Toggle(list, "MUR_CpuJitPrewarm", ref s.CpuJitPrewarm);
+        Toggle(list, "MUR_AdaptiveWorkers", ref s.AdaptiveWorkers);
         Slider(list, "MUR_CpuAuditInterval", ref s.CpuAuditRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_FileDiscoveryInterval", ref s.AssetDiscoveryRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
@@ -271,6 +285,7 @@ public sealed class MoreUseResourcesMod : Mod
         {
             Toggle(list, "MUR_GpuEnabled", ref s.GpuEnabled);
             Toggle(list, "MUR_GpuResidencyBoost", ref s.GpuResidencyBoost);
+            Toggle(list, "MUR_GpuDemandPriority", ref s.GpuDemandPriority);
             Toggle(list, "MUR_GpuPrepareGraphics", ref s.GpuPrepareGraphics);
             Toggle(list, "MUR_GpuAnisotropicMeshes", ref s.GpuAnisotropicMeshes);
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);

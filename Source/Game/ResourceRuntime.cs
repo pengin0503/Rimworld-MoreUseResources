@@ -11,6 +11,8 @@ using RimWorld.Planet;
 using UnityEngine;
 using Verse;
 using Waylith.Runtime;
+using Waylith.Rendering;
+using Waylith.Assets;
 
 namespace MoreUseResources;
 
@@ -21,6 +23,14 @@ internal sealed class ResourceRuntime
     private readonly ResourceController controller;
     private readonly TexturePrewarm gpu = new();
     private readonly PerformanceMeter performance = new();
+    private readonly AdaptiveWorkerBudget adaptiveWorkers = new();
+    private (GamePhase Phase, TimeSpeed? Speed, float? EffectiveRate, bool Focused, bool Adaptive) performanceContext;
+    private long nextJitCompatibilityCheck;
+    private volatile bool exportStartupPacks;
+    private PackSourceSnapshot? lastManifestQueued;
+    private int manifestInFlight;
+    private readonly string? startupModsConfigHash;
+    internal bool JitYieldedToWowgag { get; private set; }
     private readonly GcMonitor gcMonitor = new();
     private readonly EngineExperiments experiments = new();
     private bool jitSourcesPublished;
@@ -46,13 +56,26 @@ internal sealed class ResourceRuntime
         public readonly List<string> Roots;
         public readonly List<string> Folders;
         public readonly string[] ExtraFiles;
+        public readonly string? ActiveCacheRoot;
+        public readonly string? InstallId;
+        public readonly string GameDirectory;
+        public readonly string ManifestPath;
+        public readonly string ModsConfigPath;
+        public readonly string[]? MountedPacks;
 
-        public PackSourceSnapshot(string? cacheDataPath, List<string> roots, List<string> folders, string[] extraFiles)
+        public PackSourceSnapshot(string? cacheDataPath, List<string> roots, List<string> folders, string[] extraFiles,
+            string? activeCacheRoot, string? installId, string gameDirectory, string manifestPath, string modsConfigPath, string[]? mountedPacks)
         {
             CacheDataPath = cacheDataPath;
             Roots = roots;
             Folders = folders;
             ExtraFiles = extraFiles;
+            ActiveCacheRoot = activeCacheRoot;
+            InstallId = installId;
+            GameDirectory = gameDirectory;
+            ManifestPath = manifestPath;
+            ModsConfigPath = modsConfigPath;
+            MountedPacks = mountedPacks;
         }
     }
     private int savingDepth;
@@ -65,6 +88,12 @@ internal sealed class ResourceRuntime
     internal ResourceRuntime(ResourceSettings settings)
     {
         this.settings = settings;
+        exportStartupPacks = settings.Enabled && settings.ExportStartupPacks;
+        if (TexturePrewarm.SupportedBuild)
+        {
+            try { startupModsConfigHash = StartupPackManifest.ReadConfigHash(GenFilePaths.ModsConfigFilePath); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
         recordLoadTimingOnLaunch = settings.RecordLoadTiming;
         // Mod constructors run before all mods finish loading. Defer asset-list
         // capture until the first fully loaded frame on the game thread.
@@ -76,6 +105,7 @@ internal sealed class ResourceRuntime
     internal TexturePrewarm Gpu => gpu;
     internal PerformanceSnapshot Performance => performance.Latest;
     internal GcMonitor Gc => gcMonitor;
+    internal int AdaptiveWorkerPercent => controller.AdaptiveWorkerPercent;
     internal ControllerStatus Status => controller.GetStatus();
     internal ManualMode Manual { get => controller.Manual; set => controller.Manual = value; }
     internal bool Faulted => faulted;
@@ -124,7 +154,12 @@ internal sealed class ResourceRuntime
 
     internal void SettingsChanged(ResourceSettings value)
     {
-        if (!faulted) controller.UpdateSettings(value.Clone());
+        bool export = value.Enabled && value.ExportStartupPacks;
+        bool exportJustEnabled = export && !exportStartupPacks;
+        exportStartupPacks = export;
+        if (faulted) return;
+        controller.UpdateSettings(value.Clone());
+        if (exportJustEnabled) lastManifestQueued = null;
     }
 
     internal void ReleaseRam()
@@ -162,6 +197,24 @@ internal sealed class ResourceRuntime
         if (phase is GamePhase.MainMenu or GamePhase.Paused or GamePhase.PlayingNormal or GamePhase.PlayingFast
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase);
+    }
+
+    private void UpdateJitSources(long now)
+    {
+        if (!settings.Enabled || !settings.CpuEnabled || !settings.CpuJitPrewarm)
+        {
+            nextJitCompatibilityCheck = 0;
+            return;
+        }
+        if (now < nextJitCompatibilityCheck) return;
+        nextJitCompatibilityCheck = now + 2000;
+        JitYieldedToWowgag = WowgagCompatibility.YieldJit();
+        if (JitYieldedToWowgag)
+        {
+            if (jitSourcesPublished) controller.ClearJitSources();
+            jitSourcesPublished = false;
+        }
+        else if (!jitSourcesPublished) PublishJitSources();
     }
 
     private void PublishJitSources()
@@ -209,11 +262,83 @@ internal sealed class ResourceRuntime
         return token =>
         {
             PackSourceSnapshot? snapshot = Volatile.Read(ref packSources);
-            return snapshot == null
-                ? Array.Empty<string>()
-                : EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
-                    snapshot.ExtraFiles, token);
+            return snapshot == null ? Array.Empty<string>() : DiscoverPacks(snapshot, token);
         };
+    }
+
+    private static List<string> DiscoverPacks(PackSourceSnapshot snapshot, CancellationToken token) =>
+        EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
+            snapshot.ExtraFiles, token, snapshot.ActiveCacheRoot, snapshot.InstallId, snapshot.MountedPacks);
+
+    private void QueueStartupManifest()
+    {
+        PackSourceSnapshot? snapshot = Volatile.Read(ref packSources);
+        if (!exportStartupPacks || startupModsConfigHash == null
+            || snapshot?.ActiveCacheRoot == null || ReferenceEquals(snapshot, lastManifestQueued)
+            || Interlocked.CompareExchange(ref manifestInFlight, 1, 0) != 0)
+            return;
+        lastManifestQueued = snapshot;
+
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                List<string> packs = DiscoverPacks(snapshot, CancellationToken.None);
+                StartupPackManifest.Save(snapshot.ManifestPath, snapshot.GameDirectory,
+                    snapshot.ActiveCacheRoot, snapshot.ModsConfigPath, packs, CancellationToken.None,
+                    () => exportStartupPacks && Volatile.Read(ref stopped) == 0
+                        && ReferenceEquals(snapshot, Volatile.Read(ref packSources)),
+                    snapshot.MountedPacks, startupModsConfigHash);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warning("[More Use Resources] Could not update the startup pack manifest. " + ex.Message);
+            }
+            finally { Interlocked.Exchange(ref manifestInFlight, 0); }
+        });
+    }
+
+    private static string[]? CaptureMountedPacks()
+    {
+        if (!TexturePrewarm.SupportedBuild) return null;
+        var mounts = ContentPack.Mounts;
+        var paths = new string[mounts.Count];
+        for (int i = 0; i < mounts.Count; i++) paths[i] = mounts[i].Pack.Path;
+        return paths;
+    }
+
+    private static (string? Root, string? InstallId) CaptureActiveTextureCache()
+    {
+        if (!TexturePrewarm.SupportedBuild) return default;
+        try
+        {
+            var root = typeof(GpuTextureService).GetProperty("TextureCacheRoot",
+                BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as string;
+            return string.IsNullOrWhiteSpace(root) ? default : (root, CacheFileWriter.InstallId);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return default;
+        }
+    }
+
+    private void UpdatePerformance(long now, TickManager? ticks, double frameIntervalMs, GamePhase phase, bool focused)
+    {
+        var context = (phase, ticks?.CurTimeSpeed, ticks?.TickRateMultiplier, focused, settings.AdaptiveWorkers);
+        if (context != performanceContext)
+        {
+            performanceContext = context;
+            performance.Reset();
+            adaptiveWorkers.Reset();
+            controller.SetAdaptiveWorkerPercent(100);
+        }
+        bool completed = performance.Sample(now, ticks?.TicksGame, frameIntervalMs);
+        if (!settings.AdaptiveWorkers || !focused || phase is not (GamePhase.PlayingNormal or GamePhase.PlayingFast))
+            return;
+        if (!completed) return;
+        var sample = performance.Latest;
+        adaptiveWorkers.Observe(sample.P95FrameIntervalMs, sample.TicksPerSecond);
+        controller.SetAdaptiveWorkerPercent(adaptiveWorkers.Percent);
     }
 
     private static List<string> CaptureFolders()
@@ -298,14 +423,21 @@ internal sealed class ResourceRuntime
             };
             controller.PublishSignals(signals);
             if (!endOfUpdate) return;
-            if (loaded && !queuedLongEvent && Volatile.Read(ref packSources) == null)
+            bool reloadCompleted = loaded && !loading && Interlocked.Exchange(ref dataReloaded, 0) != 0;
+            if (loaded && !queuedLongEvent && (reloadCompleted || Volatile.Read(ref packSources) == null))
             {
                 var roots = new List<string>();
                 foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
                     if (!string.IsNullOrEmpty(pack.RootDir)) roots.Add(Path.GetFullPath(pack.RootDir));
                 List<string> folders = CaptureFolders();
+                string resources = Path.Combine(AppContext.BaseDirectory, "Resources");
+                if (Directory.Exists(resources)) roots.Add(Path.GetFullPath(resources));
                 var extra = new[] { Path.Combine(AppContext.BaseDirectory, EnginePackFiles.AssetPackFileName) };
-                var snapshot = new PackSourceSnapshot(WaylithRuntime.Current?.App.CacheDataPath, roots, folders, extra);
+                var (cacheRoot, installId) = CaptureActiveTextureCache();
+                string gameDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+                var snapshot = new PackSourceSnapshot(WaylithRuntime.Current?.App.CacheDataPath, roots, folders, extra,
+                    cacheRoot, installId, gameDirectory, Path.Combine(GenFilePaths.SaveDataFolderPath, StartupPackManifest.FileName),
+                    GenFilePaths.ModsConfigFilePath, CaptureMountedPacks());
                 Volatile.Write(ref packSources, snapshot);
                 controller.SetAssetFolders(folders);
             }
@@ -313,10 +445,10 @@ internal sealed class ResourceRuntime
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
             controller.ReportFrame(frameIntervalMs);
-            performance.Sample(now, ticks?.TicksGame, frameIntervalMs);
             // Use the frame's live phase here, not the controller's previous 50 ms sample.
             signals.Saving = Volatile.Read(ref savingDepth) > 0;
             var phase = PhaseResolver.Resolve(signals, settings.IdleBoost ? settings.IdleSeconds : 0);
+            UpdatePerformance(now, ticks, frameIntervalMs, phase.Phase, focused);
             var activation = ActivationPlanner.PlanOne(settings, phase, Manual, ResourceKind.Gpu);
             bool ready = loaded && !loading;
             if (ready && !gcBaselineLoaded)
@@ -325,10 +457,13 @@ internal sealed class ResourceRuntime
                 GcBaseline = GcBenchmark.Load(GcBaselinePath);
             }
             UpdateGc(now, phase.Phase);
-            if (ready && settings.Enabled && settings.CpuEnabled && settings.CpuJitPrewarm && !jitSourcesPublished)
-                PublishJitSources();
+            if (ready)
+            {
+                QueueStartupManifest();
+                UpdateJitSources(now);
+            }
 
-            if (ready && Interlocked.Exchange(ref dataReloaded, 0) != 0)
+            if (reloadCompleted)
             {
                 experiments.ResetGraphicsScans();
                 gpu.InvalidateScan();
@@ -343,6 +478,7 @@ internal sealed class ResourceRuntime
             controller.Manual = ManualMode.Paused;
             controller.UpdateSettings(new ResourceSettings { Enabled = false });
             controller.RequestReleaseMemory();
+            gpu.Stop();
             experiments.Restore();
             Log.Error("[More Use Resources] Frame observer stopped. " + ex);
         }
@@ -354,7 +490,7 @@ internal sealed class ResourceRuntime
         Interlocked.CompareExchange(ref instance, null, this);
         Application.quitting -= Stop;
         AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
-        try { experiments.Restore(); }
+        try { gpu.Stop(); experiments.Restore(); }
         finally { controller.Shutdown(); }
     }
 }

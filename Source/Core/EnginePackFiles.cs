@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 
 namespace MoreUseResources.Core
@@ -69,6 +71,13 @@ namespace MoreUseResources.Core
             return true;
         }
 
+        public static string CacheFileName(string modRoot)
+        {
+            string root = Path.TrimEndingDirectorySeparator(modRoot);
+            string hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(root)).AsSpan(0, 8));
+            return SanitizeRootName(Path.GetFileName(root)) + "-" + hash + ".zip";
+        }
+
         /// <summary>
         /// Returns existing pack files, most valuable first: texture cache packs of the given mod
         /// roots, then asset packs of the load folders and <paramref name="extraFiles"/>.
@@ -77,13 +86,37 @@ namespace MoreUseResources.Core
         /// dropping older candidates could omit the pack currently opened by the engine.
         /// </summary>
         public static List<string> Discover(string? cacheDataPath, IReadOnlyList<string> modRoots,
-            IReadOnlyList<string> loadFolders, IReadOnlyList<string>? extraFiles, CancellationToken token)
+            IReadOnlyList<string> loadFolders, IReadOnlyList<string>? extraFiles, CancellationToken token, string? activeCacheRoot = null, string? installId = null,
+            IReadOnlyList<string>? mountedPacks = null)
         {
             var result = new List<string>();
             var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var seen = new HashSet<string>(comparer);
 
-            AddTextureCachePacks(cacheDataPath, modRoots, comparer, result, seen, token);
+            if (!string.IsNullOrWhiteSpace(activeCacheRoot))
+            {
+                string atlas = "pages." + installId + ".zip";
+                if (!token.IsCancellationRequested && IsKeyedPagesPack(atlas))
+                    AddIfFile(Path.Combine(activeCacheRoot, atlas), result, seen);
+                foreach (string root in modRoots)
+                {
+                    if (token.IsCancellationRequested || result.Count >= MaxPacks) return result;
+                    if (!string.IsNullOrWhiteSpace(root))
+                        AddIfFile(Path.Combine(activeCacheRoot, CacheFileName(root)), result, seen);
+                }
+            }
+            else
+                AddTextureCachePacks(cacheDataPath, modRoots, comparer, result, seen, token);
+
+            if (mountedPacks != null)
+            {
+                foreach (string path in mountedPacks)
+                {
+                    if (token.IsCancellationRequested || result.Count >= MaxPacks) return result;
+                    AddIfFile(path, result, seen);
+                }
+                return result;
+            }
 
             foreach (string folder in loadFolders)
             {

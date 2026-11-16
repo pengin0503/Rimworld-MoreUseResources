@@ -107,6 +107,8 @@ namespace MoreUseResources.Core
         private int _assetDiscoveryPasses;
         private int _fileSourceChanges;
         private int _assetScan;
+        private int _assetGeneration;
+        private int _publishedAssetGeneration;
         private volatile bool _assetScanAllowed;
         private readonly WorkerPool _pool;
         private readonly NativeBlockStore _cacheStore = new NativeBlockStore();
@@ -131,6 +133,7 @@ namespace MoreUseResources.Core
         private int _releaseRequested;
         private JitPrewarm? _jit;
         private int _jitJobs;
+        private int _adaptivePercent = 100;
         private volatile bool _extraMemoryAvailable;
         private bool _disposed;
         private string? _controlError;
@@ -204,7 +207,11 @@ namespace MoreUseResources.Core
         public void SetAssetFolders(IReadOnlyList<string> folders)
         {
             if (folders == null) throw new ArgumentNullException(nameof(folders));
-            Volatile.Write(ref _assetFolders, new List<string>(folders));
+            lock (_sourceGate)
+            {
+                Volatile.Write(ref _assetFolders, new List<string>(folders));
+                Interlocked.Increment(ref _assetGeneration);
+            }
         }
 
         /// <summary>Main thread: latest facts about the game.</summary>
@@ -231,6 +238,9 @@ namespace MoreUseResources.Core
         }
 
         public bool FrameThrottled => _throttled;
+        public int AdaptiveWorkerPercent => Volatile.Read(ref _adaptivePercent);
+        public void SetAdaptiveWorkerPercent(int percent) => Volatile.Write(ref _adaptivePercent, percent);
+        public void ClearJitSources() => Volatile.Write(ref _jit, null);
         public bool ExtraMemoryAvailable => _extraMemoryAvailable;
         public JitProgress Jit => Volatile.Read(ref _jit)?.Progress ?? default;
 
@@ -311,10 +321,12 @@ namespace MoreUseResources.Core
             int maxWorkers = s.EffectiveMaxWorkers(_logicalProcessors);
             int workers = plan.Cpu.Active ? Math.Max(1, (int)Math.Round(maxWorkers * plan.Cpu.Intensity)) : 0;
             bool synthetic = plan.Cpu.Active && s.CpuSyntheticLoad;
+            if (s.AdaptiveWorkers) workers = AdaptiveWorkerBudget.Scale(workers, AdaptiveWorkerPercent);
             if (throttled) workers = synthetic ? Math.Max(1, workers / 2) : Math.Min(1, workers);
             bool holdCopies = s.RamEnabled && s.RamHoldCopies;
             bool fileWork = s.RamFileCache && (plan.Ram.Active || plan.Cpu.Active);
-            bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled;
+            bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled
+                && (!s.AdaptiveWorkers || AdaptiveWorkerPercent > 50);
             bool anyFileWork = fileWork || auditWork;
             if (!anyFileWork) _assetScanAllowed = false;
             if (!fileWork) _fileCache.Suspend();
@@ -382,7 +394,7 @@ namespace MoreUseResources.Core
                 Interlocked.Increment(ref _jitJobs);
                 _pool.Enqueue(token =>
                 {
-                    try { jit.RunSlice(MayRunJit, token); }
+                    try { jit.RunSlice(() => ReferenceEquals(jit, Volatile.Read(ref _jit)) && MayRunJit(), token); }
                     finally { Interlocked.Decrement(ref _jitJobs); }
                 });
             }
@@ -422,6 +434,7 @@ namespace MoreUseResources.Core
         {
             ResourceSettings s = _settings;
             return !_stopping && s.Enabled && s.CpuEnabled && s.CpuIndexAssets && Manual != ManualMode.Paused
+                && (!s.AdaptiveWorkers || AdaptiveWorkerPercent > 50)
                 && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
         }
 
@@ -441,12 +454,18 @@ namespace MoreUseResources.Core
 
         private void QueueAssetScan(int rescanMinutes)
         {
-            IReadOnlyList<string>? folders = Volatile.Read(ref _assetFolders);
+            IReadOnlyList<string>? folders;
+            int generation;
+            lock (_sourceGate)
+            {
+                folders = _assetFolders;
+                generation = _assetGeneration;
+            }
             if (folders == null) return;
             int state = Volatile.Read(ref _assetScan);
             if (state == 1) return; // exactly one live scanner at a time
             long now = _assetClockMs();
-            if (state == 2)
+            if (state == 2 && generation == Volatile.Read(ref _publishedAssetGeneration))
             {
                 long last = Interlocked.Read(ref _lastAssetDiscoveryAtMs);
                 if (rescanMinutes <= 0 || now < last || now - last < rescanMinutes * 60_000L)
@@ -457,9 +476,10 @@ namespace MoreUseResources.Core
             {
                 try
                 {
-                    List<string> files = GameAssetFiles.Discover(folders, token,
-                        () => _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()));
-                    if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
+                    bool StillCurrent() => !token.IsCancellationRequested && generation == Volatile.Read(ref _assetGeneration)
+                        && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed());
+                    List<string> files = GameAssetFiles.Discover(folders, token, StillCurrent);
+                    if (StillCurrent())
                     {
                         IReadOnlyList<string>? packs = null;
                         if (_packDiscovery != null)
@@ -468,11 +488,15 @@ namespace MoreUseResources.Core
                             catch (IOException) { }
                             catch (UnauthorizedAccessException) { }
                         }
-                        if (token.IsCancellationRequested) return;
-                        SetFileSources(files, packs);
-                        Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
-                        Interlocked.Increment(ref _assetDiscoveryPasses);
-                        Volatile.Write(ref _assetScan, 2);
+                        lock (_sourceGate)
+                        {
+                            if (!StillCurrent()) return;
+                            SetFileSources(files, packs);
+                            Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
+                            Interlocked.Increment(ref _assetDiscoveryPasses);
+                            Volatile.Write(ref _publishedAssetGeneration, generation);
+                            Volatile.Write(ref _assetScan, 2);
+                        }
                     }
                 }
                 finally
