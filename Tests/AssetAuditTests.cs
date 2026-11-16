@@ -229,6 +229,48 @@ namespace MoreUseResources.Tests
             Assert.Throws<OperationCanceledException>(() => XmlManifestScanner.Scan(path, cts.Token));
         }
 
+        [Fact]
+        public void Image_audit_reports_real_PNG_and_DDS_data_and_repairs_on_rescan()
+        {
+            const string png64 = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAC0lEQVR4nGNgwAkAABsAAco8Sg0AAAAASUVORK5CYII=";
+            byte[] validPng = Convert.FromBase64String(png64);
+            byte[] brokenPng = (byte[])validPng.Clone();
+            brokenPng[20] ^= 1;
+            using var png = new TextureAssetInspectorTests.TempAsset(".png", validPng);
+            using var dds = new TextureAssetInspectorTests.TempAsset(".dds", TextureAssetInspectorTests.Dds(128, 64));
+            using var bad = new TextureAssetInspectorTests.TempAsset(".png", brokenPng);
+            long now = 1000;
+            using var pool = new WorkerPool(3);
+            pool.Configure(3, true, false, 1, ThreadPriority.Lowest);
+            var audit = new AssetAudit(pool, clockMs: () => Interlocked.Read(ref now));
+            audit.SetSources(new[] { png.Path, dds.Path, bad.Path });
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 3, 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(3, audit.Snapshot.TextureFilesChecked);
+            Assert.Equal(2, audit.Snapshot.TextureFilesValid);
+            Assert.Equal(1, audit.Snapshot.TextureFilesMalformed);
+            Assert.Equal(24L + 32768, audit.Snapshot.TextureRgba8EquivalentBytes);
+            Assert.Equal(validPng.Length + 128, audit.Snapshot.TextureBytesValidated);
+
+            File.WriteAllBytes(bad.Path, validPng);
+            Interlocked.Exchange(ref now, 2100);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 3, 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 2;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(3, audit.Snapshot.TextureFilesChecked);
+            Assert.Equal(3, audit.Snapshot.TextureFilesValid);
+            Assert.Equal(0, audit.Snapshot.TextureFilesMalformed);
+            Assert.Equal(48L + 32768, audit.Snapshot.TextureRgba8EquivalentBytes);
+            Assert.Equal(1, audit.Snapshot.ChangedFiles);
+        }
+
         private sealed class TemporaryDirectory : IDisposable
         {
             public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mur-audit-" + Guid.NewGuid().ToString("N"));
