@@ -140,10 +140,12 @@ internal sealed class TexturePrewarm
 
             var core = texture.CoreTexture;
             if (core == null || core.GpuResource != null || !core.CanRehydrate || core.SourcePath == null
-                || core.width is < 1 or > 1024 || core.height is < 1 or > 1024)
+                || core.width < 1 || core.width > settings.GpuMaxTextureDimension
+                || core.height < 1 || core.height > settings.GpuMaxTextureDimension)
                 continue;
             PrewarmAdmission admission = PrewarmAdmissionPolicy.Evaluate(
-                info, core.width, core.height, settings.GpuTargetPercent, keepFree);
+                info, core.width, core.height, settings.GpuTargetPercent, keepFree,
+                settings.GpuMaxTextureDimension);
             if (admission == PrewarmAdmission.Reject)
             {
                 RejectedTextures++;
