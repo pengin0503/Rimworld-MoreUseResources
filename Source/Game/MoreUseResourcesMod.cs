@@ -72,6 +72,14 @@ public sealed class MoreUseResourcesMod : Mod
         list.Label("MUR_PerformanceStatus".Translate(perf.FramesPerSecond.ToString("F1"),
             perf.TicksPerSecond.ToString("F1"), perf.AverageFrameIntervalMs.ToString("F1"),
             perf.WorstFrameIntervalMs.ToString("F1")));
+        if (runtime.Gc.HasData)
+        {
+            GcSnapshot gc = runtime.Gc.Latest;
+            list.Label("MUR_GcStatus".Translate(gc.Gen0Collections, gc.Gen1Collections, gc.Gen2Collections,
+                gc.PauseMs.ToString("F0"), gc.PausePercent.ToString("F2"), gc.AllocatedMiBPerSecond.ToString("F1"),
+                InMiB(gc.HeapBytes), (gc.ServerGc ? "Server" : "Workstation") + "/" + gc.Latency));
+        }
+        else list.Label("MUR_GcPending".Translate());
         list.Label("MUR_RamStatus".Translate(Reason(status.Plan.Ram),
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
