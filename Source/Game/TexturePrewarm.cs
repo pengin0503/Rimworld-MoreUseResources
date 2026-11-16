@@ -17,16 +17,22 @@ namespace MoreUseResources;
 internal sealed class TexturePrewarm
 {
     private const int MaxCandidatesPerFrame = 48;
+    private const int MaxUploadsPerFrame = 4;
     private const int SampleIntervalMs = 250;
+    private const int MaxDeferredCandidates = 2048;
     private IEnumerator<Texture2D>? textures;
     private int packIndex;
-    private Texture2D? pending;
+    private readonly PrewarmDeferredQueue<Texture2D> deferred = new(MaxDeferredCandidates);
     private long nextWorkMs;
-    private bool complete;
+    private bool scanComplete;
 
     internal string StatusKey { get; private set; } = "MUR_GpuDisabled";
     internal VramInfo Memory { get; private set; }
     internal long Uploaded { get; private set; }
+    internal int DeferredCount => deferred.Count;
+    internal long DroppedDeferred => deferred.Dropped;
+    internal long RejectedTextures { get; private set; }
+    internal long FailedUploads { get; private set; }
 
     internal static bool SupportedBuild => OperatingSystem.IsWindows()
         && VersionControl.CurrentMajor == 1 && VersionControl.CurrentMinor == 7
@@ -73,7 +79,7 @@ internal sealed class TexturePrewarm
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Step(ResourceSettings settings, float intensity)
     {
-        if (complete)
+        if (scanComplete && deferred.Count == 0)
         {
             StatusKey = "MUR_GpuComplete";
             return;
@@ -101,35 +107,84 @@ internal sealed class TexturePrewarm
             return;
         }
         StatusKey = "MUR_GpuWorking";
-        var budget = Stopwatch.StartNew();
+        var timer = Stopwatch.StartNew();
         double frameBudgetMs = settings.GpuFrameBudgetTenthMs * 0.1 * intensity;
-        for (int i = 0; i < MaxCandidatesPerFrame && budget.Elapsed.TotalMilliseconds < frameBudgetMs; i++)
+        int retriesAvailable = deferred.Count;
+        int retriesMade = 0;
+        int uploadsThisFrame = 0;
+        for (int i = 0; i < MaxCandidatesPerFrame && uploadsThisFrame < MaxUploadsPerFrame
+            && timer.Elapsed.TotalMilliseconds < frameBudgetMs; i++)
         {
-            Texture2D? texture = pending ?? NextTexture();
-            if (complete) break;
-            if (texture == null) continue;
+            Texture2D? texture;
+            if (!scanComplete)
+            {
+                // Always scan new assets before retrying budget-blocked assets:
+                // a large image must never block smaller images behind it.
+                texture = NextTexture();
+                if (texture == null) continue;
+            }
+            else
+            {
+                // Retry each previously deferred image at most once per frame.
+                if (retriesMade++ >= retriesAvailable) break;
+                texture = deferred.Take();
+                if (texture == null) break;
+            }
+
             var core = texture.CoreTexture;
             if (core == null || core.GpuResource != null || !core.CanRehydrate || core.SourcePath == null
                 || core.width is < 1 or > 1024 || core.height is < 1 or > 1024)
+                continue;
+            PrewarmAdmission admission = PrewarmAdmissionPolicy.Evaluate(
+                info, core.width, core.height, settings.GpuTargetPercent, keepFree);
+            if (admission == PrewarmAdmission.Reject)
             {
-                pending = null;
+                RejectedTextures++;
                 continue;
             }
-            if (!info.CanPrewarmTexture(core.width, core.height, settings.GpuTargetPercent, keepFree))
+            if (admission == PrewarmAdmission.Defer)
             {
-                pending = texture;
-                StatusKey = "MUR_GpuAtTarget";
+                deferred.Defer(texture);
+                continue;
+            }
+            if (!texture.EnsureGpuResident())
+            {
+                FailedUploads++;
+                continue;
+            }
+
+            Uploaded++;
+            uploadsThisFrame++;
+            // A live driver sample after each successful upload prevents overspending a
+            // single snapshot when several game textures are uploaded within one frame.
+            if (!TryReadTextureHeap(out info))
+            {
+                Memory = default;
+                StatusKey = "MUR_GpuNoBudget";
                 nextWorkMs = now + 1000;
                 return;
             }
-            pending = null;
-            if (texture.EnsureGpuResident()) Uploaded++;
-            // The engine owns the image. Refresh the driver budget before the next upload.
-            int backoffMs = budget.Elapsed.TotalMilliseconds > frameBudgetMs ? SampleIntervalMs * 4 : SampleIntervalMs;
-            nextWorkMs = now + (int)(backoffMs / intensity);
+            Memory = info;
+            if (info.UsageBytes >= info.CapBytes(settings.GpuTargetPercent, keepFree))
+            {
+                StatusKey = "MUR_GpuAtTarget";
+                break;
+            }
+        }
+
+        if (scanComplete && deferred.Count == 0)
+        {
+            StatusKey = "MUR_GpuComplete";
             return;
         }
-        nextWorkMs = now + Math.Max(25, (int)(50 / intensity));
+
+        if (scanComplete && retriesAvailable > 0 && uploadsThisFrame == 0)
+            StatusKey = "MUR_GpuAtTarget";
+        int delayMs = uploadsThisFrame > 0 ? Math.Max(16, (int)(SampleIntervalMs / (4 * intensity)))
+            : scanComplete ? 1000 : Math.Max(25, (int)(50 / intensity));
+        if (timer.Elapsed.TotalMilliseconds > frameBudgetMs)
+            delayMs = Math.Max(delayMs, SampleIntervalMs * 4);
+        nextWorkMs = now + delayMs;
     }
 
     private static bool TryReadTextureHeap(out VramInfo memory)
@@ -160,7 +215,7 @@ internal sealed class TexturePrewarm
         var packs = LoadedModManager.RunningModsListForReading;
         if (packIndex >= packs.Count)
         {
-            complete = true;
+            scanComplete = true;
             return null;
         }
         textures = packs[packIndex++].GetContentHolder<Texture2D>()?.contentList.Values.GetEnumerator();
@@ -171,9 +226,9 @@ internal sealed class TexturePrewarm
     {
         textures?.Dispose();
         textures = null;
-        pending = null;
+        deferred.Clear();
         packIndex = 0;
-        complete = false;
+        scanComplete = false;
         nextWorkMs = 0;
         Memory = default;
     }
