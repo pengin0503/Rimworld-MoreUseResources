@@ -75,6 +75,7 @@ public sealed class MoreUseResourcesMod : Mod
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
+        list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
         list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
             InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));
@@ -202,6 +203,7 @@ public sealed class MoreUseResourcesMod : Mod
 
         list.GapLine();
         Toggle(list, "MUR_PrefetchEnabled", ref s.RamFileCache);
+        Slider(list, "MUR_PrefetchRefreshInterval", ref s.RamPrefetchRefreshMinutes, 0, 120, 5);
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
