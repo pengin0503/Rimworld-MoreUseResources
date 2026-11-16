@@ -1,0 +1,39 @@
+name: PR 5 build and DLL transfer
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  binary:
+    if: github.event.pull_request.number == 5
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+      - run: dotnet new globaljson --sdk-version 10.0.100 --roll-forward disable
+      - run: dotnet test Tests/MoreUseResources.Tests.csproj -c Release
+      - run: dotnet build Source/Game/MoreUseResources.csproj -c Release
+      - name: Transfer the compiled public DLL
+        run: |
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          from pathlib import Path
+
+          data = Path("Source/Game/bin/Release/net10.0/MoreUseResources.dll").read_bytes()
+          encoded = base64.b64encode(data).decode("ascii")
+          width = 1536
+          count = (len(encoded) + width - 1) // width
+          print(f"MUR_DLL_META {count} {len(data)} {hashlib.sha256(data).hexdigest()}")
+          for index, offset in enumerate(range(0, len(encoded), width)):
+              print(f"MUR_DLL_PART {index:05d} {encoded[offset:offset+width]}")
+          PY

@@ -160,7 +160,7 @@ namespace MoreUseResources.Core
             _governor = new MemoryGovernor(probe, _cacheStore, _reserveStore);
             _fileCache = new FileCache(_cacheStore, _pool, mayRead: FileReadAllowed, mayCopy: RamCopyAllowed);
             _assetAudit = new AssetAudit(_pool, mayRun: AuditReadAllowed);
-            _packResidency = new MappedPackResidency(_pool);
+            _packResidency = new MappedPackResidency(_pool, availableForTouch: AvailableForPackTouch);
             _signals = new RawGameSignals { Focused = true };
             _plan = ActivationPlanner.Plan(_settings, new PhaseSnapshot(GamePhase.Startup, PhaseModifiers.None), ManualMode.Auto);
         }
@@ -418,6 +418,14 @@ namespace MoreUseResources.Core
             ResourceSettings s = _settings;
             return !_stopping && s.Enabled && s.CpuEnabled && s.CpuSyntheticLoad && Manual != ManualMode.Paused
                 && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
+        }
+
+        private long AvailableForPackTouch()
+        {
+            MemoryStatus status = _probe.Read();
+            if (!status.FromOperatingSystem) return 0;
+            long floor = _settings.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            return Math.Max(0, status.AvailablePhysical - floor);
         }
 
         private bool FileReadAllowed()

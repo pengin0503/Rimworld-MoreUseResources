@@ -91,7 +91,7 @@ public sealed class MoreUseResourcesMod : Mod
                     difference.AllocatedMiBPerSecond.ToString("+0.0;-0.0;0.0"),
                     (difference.CommittedBytes / (double)ResourceSettings.MiB).ToString("+0.0;-0.0;0.0")));
         }
-        if (runtime.GcBaseline != null && (runtime.GcCurrent == null || runtime.GcCurrent.Phase != runtime.GcBaseline.Phase))
+        if (runtime.GcBaseline != null && (runtime.GcCurrent == null || !runtime.GcCurrent.CanCompareWith(runtime.GcBaseline)))
             list.Label("MUR_GcComparisonPending".Translate(PhaseName(runtime.GcBaseline.Phase)));
         if (settings.Value.CpuJitPrewarm && runtime.JitYieldedToWowgag)
             list.Label("MUR_JitWowgag".Translate());

@@ -4,6 +4,65 @@ using System.Diagnostics;
 
 namespace MoreUseResources.Core
 {
+    public struct TextureHeapSelection
+    {
+        private readonly long expectedBytes;
+        private VramInfo memory;
+        private bool ambiguous;
+
+        public TextureHeapSelection(long expectedBytes) => this.expectedBytes = expectedBytes;
+
+        public void Add(bool deviceLocal, long totalBytes, long budgetBytes, long usageBytes, long allocationBytes)
+        {
+            if (!deviceLocal || expectedBytes <= 0 || totalBytes != expectedBytes) return;
+            if (memory.DriverReported || budgetBytes <= 0 || usageBytes < 0)
+            {
+                ambiguous = true;
+                return;
+            }
+
+            memory = new VramInfo(Math.Max(usageBytes, allocationBytes), Math.Min(budgetBytes, totalBytes), true);
+        }
+
+        public readonly bool TryGet(out VramInfo result)
+        {
+            result = ambiguous ? default : memory;
+            return result.DriverReported;
+        }
+    }
+
+    public sealed class TextureScanCursor<T> : IDisposable where T : class
+    {
+        private readonly Func<IEnumerable<T?>> source;
+        private IEnumerator<T?>? iterator;
+
+        public TextureScanCursor(Func<IEnumerable<T?>> source) => this.source = source;
+
+        public bool Completed { get; private set; }
+
+        public T? Take(bool allowed)
+        {
+            if (!allowed || Completed) return null;
+            iterator ??= source().GetEnumerator();
+            if (iterator.MoveNext()) return iterator.Current;
+            Dispose();
+            Completed = true;
+            return null;
+        }
+
+        public void Reset()
+        {
+            Dispose();
+            Completed = false;
+        }
+
+        public void Dispose()
+        {
+            iterator?.Dispose();
+            iterator = null;
+        }
+    }
+
     public readonly struct VramInfo
     {
         public readonly long UsageBytes;

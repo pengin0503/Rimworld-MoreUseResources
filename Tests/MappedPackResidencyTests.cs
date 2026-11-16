@@ -27,6 +27,40 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Reconfigures_mappings_when_budget_changes_even_without_refresh()
+        {
+            using var temp = new TemporaryDirectory();
+            using var pool = Pool();
+            using var residency = new MappedPackResidency(pool);
+            residency.SetSources(new[] { temp.Write("a/Assets.zip", 8192), temp.Write("b/Assets.zip", 4096) });
+            Assert.True(PumpUntil(residency, s => s.MappedBytes == 12288, limit: 12288));
+
+            residency.Pump(allowed: false, limitBytes: 4096, refreshIntervalMs: 0);
+            Assert.Equal(0, residency.Snapshot.MappedBytes);
+            Assert.True(PumpUntil(residency, s => s.MappedBytes == 4096, limit: 4096));
+            Assert.True(PumpUntil(residency, s => s.MappedBytes == 12288, limit: 12288));
+        }
+
+        [Fact]
+        public void Defers_mapping_while_live_physical_headroom_is_exhausted()
+        {
+            using var temp = new TemporaryDirectory();
+            using var pool = Pool();
+            long headroom = 0;
+            using var residency = new MappedPackResidency(pool, availableForTouch: () => Interlocked.Read(ref headroom));
+            residency.SetSources(new[] { temp.Write("Assets.zip", 4096) });
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                residency.Pump(true, 4096, 0);
+                return residency.Snapshot.MappedBytes == 0;
+            }, TimeSpan.FromSeconds(2)));
+            Thread.Sleep(50);
+            Assert.Equal(0, residency.Snapshot.MappedBytes);
+            Interlocked.Exchange(ref headroom, 4096);
+            Assert.True(PumpUntil(residency, s => s.MappedBytes == 4096, limit: 4096));
+        }
+
+        [Fact]
         public void Maps_every_source_and_counts_one_pass()
         {
             using var temp = new TemporaryDirectory();

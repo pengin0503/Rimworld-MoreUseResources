@@ -68,7 +68,9 @@ public sealed class HardwareExperimentsTests
     [Theory]
     [InlineData(2, 1, true, true, true)]
     [InlineData(1, 1, true, true, false)]
-    [InlineData(2, 2, true, true, false)]
+    [InlineData(2, 2, true, true, true)]
+    [InlineData(2, 0, true, true, false)]
+    [InlineData(2, 3, true, true, false)]
     [InlineData(2, 1, false, true, false)]
     [InlineData(2, 1, true, false, false)]
     public void MeshQualityOnlyChangesDefaultFilteringOnRepeatingMipmappedTextures(
@@ -157,6 +159,57 @@ public sealed class HardwareExperimentsTests
             Assert.Equal(XmlNodeType.CDATA, cached.ChildNodes[2]!.NodeType);
         }
         finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GcBaselineRequiresMatchingSelectedAndEffectivePlaySpeed()
+    {
+        var baseline = new GcBenchmark(GamePhase.PlayingFast, 60, 15, 1000, 3, false,
+            GCLatencyMode.Interactive, 2000, SelectedSpeed: 2, EffectiveSpeed: 3);
+        Assert.True(baseline.TryCompare(baseline, out _));
+        Assert.False((baseline with { EffectiveSpeed = 1 }).TryCompare(baseline, out _));
+        Assert.False((baseline with { SelectedSpeed = 3 }).TryCompare(baseline, out _));
+        Assert.False((baseline with { SelectedSpeed = null, EffectiveSpeed = null }).TryCompare(baseline, out _));
+    }
+
+    [Fact]
+    public void AmbiguousTextureHeapDoesNotPublishPartialBudget()
+    {
+        var selector = new TextureHeapSelection(1024);
+        selector.Add(false, 1024, 900, 200, 300);
+        selector.Add(true, 1024, 900, 200, 300);
+        Assert.True(selector.TryGet(out var budget));
+        Assert.Equal(300, budget.UsageBytes);
+        selector.Add(true, 1024, 900, 400, 400);
+        Assert.False(selector.TryGet(out budget));
+        Assert.False(budget.DriverReported);
+    }
+
+    [Fact]
+    public void ObservingDemandAtCapacityDoesNotConsumeUploadCandidates()
+    {
+        using var upload = new TextureScanCursor<string>(() => new[] { "first", "second" });
+        using var demand = new TextureScanCursor<string>(() => new[] { "first", "second" });
+        Assert.Null(upload.Take(false));
+        Assert.Equal("first", demand.Take(true));
+        Assert.Equal("second", demand.Take(true));
+        Assert.Null(demand.Take(true));
+        Assert.False(upload.Completed);
+        Assert.Equal("first", upload.Take(true));
+        Assert.Equal("second", upload.Take(true));
+    }
+
+    [Fact]
+    public void ManifestRetryIsDelayedAndStopsAfterSuccess()
+    {
+        var schedule = new StartupManifestRetry();
+        Assert.True(schedule.TryStart(0));
+        Assert.False(schedule.TryStart(5000));
+        schedule.Complete(retry: true);
+        Assert.False(schedule.TryStart(4999));
+        Assert.True(schedule.TryStart(5000));
+        schedule.Complete(retry: false);
+        Assert.False(schedule.TryStart(10000));
     }
 
     private static int Ordinary() => 1;

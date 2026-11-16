@@ -27,7 +27,8 @@ internal sealed class ResourceRuntime
     private (GamePhase Phase, TimeSpeed? Speed, float? EffectiveRate, bool Focused, bool Adaptive) performanceContext;
     private long nextJitCompatibilityCheck;
     private volatile bool exportStartupPacks;
-    private PackSourceSnapshot? lastManifestQueued;
+    private PackSourceSnapshot? manifestSource;
+    private StartupManifestRetry? manifestRetry;
     private int manifestInFlight;
     private readonly string? startupModsConfigHash;
     internal bool JitYieldedToWowgag { get; private set; }
@@ -35,7 +36,7 @@ internal sealed class ResourceRuntime
     private readonly EngineExperiments experiments = new();
     private bool jitSourcesPublished;
     private bool gcBaselineLoaded;
-    private GamePhase benchmarkPhase;
+    private (GamePhase Phase, int? Selected, float? Effective) benchmarkContext;
     private GCLatencyMode benchmarkLatency;
     private long gcComparableSince;
     private int benchmarkInterrupted;
@@ -159,7 +160,7 @@ internal sealed class ResourceRuntime
         exportStartupPacks = export;
         if (faulted) return;
         controller.UpdateSettings(value.Clone());
-        if (exportJustEnabled) lastManifestQueued = null;
+        if (exportJustEnabled) Volatile.Write(ref manifestRetry, null);
     }
 
     internal void ReleaseRam()
@@ -182,13 +183,14 @@ internal sealed class ResourceRuntime
         }
     }
 
-    private void UpdateGc(long now, GamePhase phase)
+    private void UpdateGc(long now, GamePhase phase, TickManager? ticks)
     {
         GCLatencyMode latency = GCSettings.LatencyMode;
         bool interrupted = Interlocked.Exchange(ref benchmarkInterrupted, 0) != 0;
-        if (interrupted || phase != benchmarkPhase || latency != benchmarkLatency)
+        var context = (phase, (int?)ticks?.CurTimeSpeed, ticks?.TickRateMultiplier);
+        if (interrupted || context != benchmarkContext || latency != benchmarkLatency)
         {
-            benchmarkPhase = phase;
+            benchmarkContext = context;
             benchmarkLatency = latency;
             gcComparableSince = now;
             GcCurrent = null;
@@ -196,7 +198,7 @@ internal sealed class ResourceRuntime
         if (!gcMonitor.Sample(now, latency)) return;
         if (phase is GamePhase.MainMenu or GamePhase.Paused or GamePhase.PlayingNormal or GamePhase.PlayingFast
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
-            GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase);
+            GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
     }
 
     private void UpdateJitSources(long now)
@@ -270,32 +272,50 @@ internal sealed class ResourceRuntime
         EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
             snapshot.ExtraFiles, token, snapshot.ActiveCacheRoot, snapshot.InstallId, snapshot.MountedPacks);
 
-    private void QueueStartupManifest()
+    private void QueueStartupManifest(long now)
     {
         PackSourceSnapshot? snapshot = Volatile.Read(ref packSources);
-        if (!exportStartupPacks || startupModsConfigHash == null
-            || snapshot?.ActiveCacheRoot == null || ReferenceEquals(snapshot, lastManifestQueued)
-            || Interlocked.CompareExchange(ref manifestInFlight, 1, 0) != 0)
+        if (!exportStartupPacks || startupModsConfigHash == null || snapshot?.ActiveCacheRoot == null
+            || Volatile.Read(ref manifestInFlight) != 0)
             return;
-        lastManifestQueued = snapshot;
 
-        ThreadPool.QueueUserWorkItem(_ =>
+        StartupManifestRetry? schedule = Volatile.Read(ref manifestRetry);
+        if (schedule == null || !ReferenceEquals(snapshot, manifestSource))
         {
+            schedule = new StartupManifestRetry();
+            manifestSource = snapshot;
+            Volatile.Write(ref manifestRetry, schedule);
+        }
+        if (!schedule.TryStart(now)) return;
+        Volatile.Write(ref manifestInFlight, 1);
+
+        if (ThreadPool.QueueUserWorkItem(_ =>
+        {
+            bool retry = false;
             try
             {
                 List<string> packs = DiscoverPacks(snapshot, CancellationToken.None);
-                StartupPackManifest.Save(snapshot.ManifestPath, snapshot.GameDirectory,
+                retry = StartupPackManifest.Save(snapshot.ManifestPath, snapshot.GameDirectory,
                     snapshot.ActiveCacheRoot, snapshot.ModsConfigPath, packs, CancellationToken.None,
                     () => exportStartupPacks && Volatile.Read(ref stopped) == 0
-                        && ReferenceEquals(snapshot, Volatile.Read(ref packSources)),
-                    snapshot.MountedPacks, startupModsConfigHash);
+                        && ReferenceEquals(snapshot, Volatile.Read(ref packSources))
+                        && ReferenceEquals(schedule, Volatile.Read(ref manifestRetry)),
+                    snapshot.MountedPacks, startupModsConfigHash) == StartupPackWriteResult.Retry;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                retry = true;
                 Log.Warning("[More Use Resources] Could not update the startup pack manifest. " + ex.Message);
             }
-            finally { Interlocked.Exchange(ref manifestInFlight, 0); }
-        });
+            finally
+            {
+                schedule.Complete(retry);
+                Volatile.Write(ref manifestInFlight, 0);
+            }
+        })) return;
+
+        schedule.Complete(retry: true);
+        Volatile.Write(ref manifestInFlight, 0);
     }
 
     private static string[]? CaptureMountedPacks()
@@ -456,10 +476,10 @@ internal sealed class ResourceRuntime
                 gcBaselineLoaded = true;
                 GcBaseline = GcBenchmark.Load(GcBaselinePath);
             }
-            UpdateGc(now, phase.Phase);
+            UpdateGc(now, phase.Phase, ticks);
             if (ready)
             {
-                QueueStartupManifest();
+                QueueStartupManifest(now);
                 UpdateJitSources(now);
             }
 

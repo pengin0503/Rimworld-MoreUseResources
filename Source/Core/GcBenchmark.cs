@@ -6,25 +6,32 @@ using System.Text.Json;
 namespace MoreUseResources.Core;
 
 public sealed record GcBenchmark(GamePhase Phase, double CollectionsPerMinute, double PauseMsPerMinute,
-    long HeapBytes, double AllocatedMiBPerSecond, bool ServerGc, GCLatencyMode Latency, long CommittedBytes)
+    long HeapBytes, double AllocatedMiBPerSecond, bool ServerGc, GCLatencyMode Latency, long CommittedBytes,
+    int? SelectedSpeed = null, float? EffectiveSpeed = null)
 {
-    public static GcBenchmark From(GcSnapshot sample, GamePhase phase)
+    public static GcBenchmark From(GcSnapshot sample, GamePhase phase, int? selectedSpeed = null, float? effectiveSpeed = null)
     {
         double scale = 60 / sample.WindowSeconds;
         return new GcBenchmark(phase,
             (sample.Gen0Collections + (long)sample.Gen1Collections + sample.Gen2Collections) * scale,
-            sample.PauseMs * scale, sample.HeapBytes, sample.AllocatedMiBPerSecond, sample.ServerGc, sample.Latency, sample.CommittedBytes);
+            sample.PauseMs * scale, sample.HeapBytes, sample.AllocatedMiBPerSecond, sample.ServerGc, sample.Latency, sample.CommittedBytes,
+            selectedSpeed, effectiveSpeed);
     }
 
     public bool TryCompare(GcBenchmark baseline, out GcDifference difference)
     {
         difference = default;
-        if (Phase != baseline.Phase) return false;
+        if (!CanCompareWith(baseline)) return false;
         difference = new GcDifference(CollectionsPerMinute - baseline.CollectionsPerMinute,
             PauseMsPerMinute - baseline.PauseMsPerMinute, HeapBytes - baseline.HeapBytes,
             AllocatedMiBPerSecond - baseline.AllocatedMiBPerSecond, CommittedBytes - baseline.CommittedBytes);
         return true;
     }
+
+    public bool CanCompareWith(GcBenchmark baseline) =>
+        Phase == baseline.Phase && (Phase is not (GamePhase.PlayingNormal or GamePhase.PlayingFast)
+            || (SelectedSpeed.HasValue && SelectedSpeed == baseline.SelectedSpeed
+                && EffectiveSpeed is > 0 && EffectiveSpeed == baseline.EffectiveSpeed));
 
     public static GcBenchmark? Load(string path)
     {

@@ -104,7 +104,7 @@
   <MUR_MemoryPressure>メモリ圧迫のため解放中</MUR_MemoryPressure>
   <MUR_GcSaveBaseline>このGC計測を比較の基準として保存</MUR_GcSaveBaseline>
   <MUR_GcComparison>GCの基準との差（{0}、{1}/{2}）　{3} 回/分、停止 {4} ms/分、ヒープ {5} MiB、確保 {6} MiB/s、GCコミット済み {7} MiB</MUR_GcComparison>
-  <MUR_GcComparisonPending>比較基準のフェーズ（{0}）でGC計測を待機中</MUR_GcComparisonPending>
+  <MUR_GcComparisonPending>基準と同じフェーズ・速度（{0}）でGC計測を待機中。旧プレイ基準は取り直してください</MUR_GcComparisonPending>
   <MUR_CachePatchedXml>対応するXMLパッチの適用結果をキャッシュ（実験機能・要再起動）</MUR_CachePatchedXml>
   <MUR_PatchedXmlOff>XMLパッチキャッシュは次回起動時に有効になります</MUR_PatchedXmlOff>
   <MUR_PatchedXmlWaiting>起動時のXMLパッチ工程を待機中</MUR_PatchedXmlWaiting>

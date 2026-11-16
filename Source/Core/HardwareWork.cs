@@ -14,7 +14,7 @@ public static class HardwareWork
         elapsedMs < budgetTenthsMs * 0.1 * intensity;
 
     public static bool CanImproveMeshFiltering(int mipCount, int anisotropy, bool repeat, bool filtered) =>
-        mipCount > 1 && anisotropy == 1 && repeat && filtered;
+        mipCount > 1 && anisotropy is (1 or 2) && repeat && filtered;
 
     public static int TextureTarget(VramInfo memory, int normal, long reserve, bool boost, bool offloadUnderPressure) =>
         boost && offloadUnderPressure && memory.DriverReported

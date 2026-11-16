@@ -104,7 +104,7 @@
   <MUR_MemoryPressure>Releasing under memory pressure</MUR_MemoryPressure>
   <MUR_GcSaveBaseline>Save this GC sample as baseline</MUR_GcSaveBaseline>
   <MUR_GcComparison>GC vs baseline ({0}; {1}/{2}): {3} collections/min, {4} pause ms/min, {5} MiB heap, {6} MiB/s allocated, {7} MiB GC committed</MUR_GcComparison>
-  <MUR_GcComparisonPending>Waiting for a complete GC sample in the baseline phase ({0})</MUR_GcComparisonPending>
+  <MUR_GcComparisonPending>Waiting for a GC sample at the baseline phase and speed ({0}); refresh an older play baseline</MUR_GcComparisonPending>
   <MUR_CachePatchedXml>Cache supported XML patch results (experimental, restart required)</MUR_CachePatchedXml>
   <MUR_PatchedXmlOff>Patched XML cache takes effect on the next launch</MUR_PatchedXmlOff>
   <MUR_PatchedXmlWaiting>Waiting for the startup XML patch stage</MUR_PatchedXmlWaiting>

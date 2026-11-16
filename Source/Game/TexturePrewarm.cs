@@ -28,12 +28,12 @@ internal sealed class TexturePrewarm
         () => GpuTextureService.TrackRehydration, value => GpuTextureService.TrackRehydration = value);
     private bool demandTracking;
     private bool demandTrackingExhausted;
-    private IEnumerator<Texture2D>? textures;
-    private int packIndex;
+    private readonly TextureScanCursor<Texture2D> uploadScan = new(EnumerateTextures);
+    private readonly TextureScanCursor<Texture2D> observationScan = new(EnumerateTextures);
     private readonly PrewarmDeferredQueue<Texture2D> deferred = new(MaxDeferredCandidates);
     private readonly TextureRefreshSchedule refreshSchedule = new();
     private long nextWorkMs;
-    private bool scanComplete;
+    private bool scanComplete => uploadScan.Completed;
     private bool demandPublished;
 
     internal string StatusKey { get; private set; } = "MUR_GpuDisabled";
@@ -126,15 +126,24 @@ internal sealed class TexturePrewarm
         bool adaptive = settings.GpuResidencyBoost && TextureResidency.Policy == TextureResidencyPolicy.OffloadUnderPressure;
         int target = HardwareWork.TextureTarget(info, settings.GpuTargetPercent, keepFree, adaptive, true);
         bool canUpload = info.UsageBytes < info.CapBytes(target, keepFree);
-        if (!canUpload && (!demandTracking || scanComplete))
+        double frameBudgetMs = settings.GpuFrameBudgetTenthMs * 0.1 * intensity;
+        if (!canUpload)
         {
+            if (demandTracking && !observationScan.Completed)
+            {
+                ObserveWhileCapped(settings.GpuMaxTextureDimension, frameBudgetMs);
+                if (observationScan.Completed)
+                {
+                    Queue<Texture2D> observed = demand.TakeRanked();
+                    if (observed.Count > 0) priority = observed;
+                }
+            }
             StatusKey = "MUR_GpuAtTarget";
-            nextWorkMs = now + 1000;
+            nextWorkMs = now + (demandTracking && !observationScan.Completed ? SampleIntervalMs : 1000);
             return;
         }
-        StatusKey = canUpload ? "MUR_GpuWorking" : "MUR_GpuAtTarget";
+        StatusKey = "MUR_GpuWorking";
         var timer = Stopwatch.StartNew();
-        double frameBudgetMs = settings.GpuFrameBudgetTenthMs * 0.1 * intensity;
         int retriesAvailable = deferred.Count;
         int retriesMade = 0;
         int uploadsThisFrame = 0;
@@ -143,18 +152,17 @@ internal sealed class TexturePrewarm
         {
             Texture2D? texture;
             Texture2D? priorityCandidate = null;
-            bool prioritized = canUpload && demandTracking && priority != null && priority.TryDequeue(out priorityCandidate);
+            bool prioritized = demandTracking && priority != null && priority.TryDequeue(out priorityCandidate);
             if (prioritized) texture = priorityCandidate;
             else if (!scanComplete)
             {
                 // Always scan new assets before retrying budget-blocked assets:
                 // a large image must never block smaller images behind it.
-                texture = NextTexture();
+                texture = uploadScan.Take(canUpload);
                 if (texture == null) continue;
             }
             else
             {
-                if (!canUpload) break;
                 // Retry each previously deferred image at most once per frame.
                 if (retriesMade++ >= retriesAvailable) break;
                 texture = deferred.Take();
@@ -176,7 +184,7 @@ internal sealed class TexturePrewarm
             int observed = demandKey == null ? 0 : ReadRehydrates(demandKey);
             if (demandKey != null)
                 demand.Observe(texture, observed, ownRehydrates.GetValueOrDefault(demandKey));
-            if (!canUpload || core.GpuResource != null) continue;
+            if (core.GpuResource != null) continue;
 
             PrewarmAdmission admission = PrewarmAdmissionPolicy.Evaluate(
                 info, core.width, core.height, target, keepFree,
@@ -230,7 +238,8 @@ internal sealed class TexturePrewarm
 
         if (scanComplete && demandTracking && !demandPublished)
         {
-            priority = demand.TakeRanked();
+            Queue<Texture2D> observed = demand.TakeRanked();
+            if (observed.Count > 0) priority = observed;
             demandPublished = true;
         }
         if (scanComplete && (demandTracking || deferred.Count == 0))
@@ -258,33 +267,43 @@ internal sealed class TexturePrewarm
         if (!GpuMemoryReport.TryGetSummary(out GpuMemorySummary report) || !report.DriverReported)
             return false;
 
-        // Match Waylith's texture heap only when the reported size identifies it unambiguously.
+        var selection = new TextureHeapSelection(TextureResidency.DeviceLocalHeapBytes);
         foreach (GpuHeapInfo heap in report.Heaps)
-        {
-            if (!heap.DeviceLocal || heap.TotalBytes != TextureResidency.DeviceLocalHeapBytes) continue;
-            if (memory.DriverReported || heap.BudgetBytes <= 0 || heap.DriverUsageBytes < 0) return false;
-            memory = new VramInfo(Math.Max(heap.DriverUsageBytes, heap.VmaBlockBytes),
-                Math.Min(heap.BudgetBytes, heap.TotalBytes), true);
-        }
-        return memory.DriverReported;
+            selection.Add(heap.DeviceLocal, heap.TotalBytes, heap.BudgetBytes, heap.DriverUsageBytes, heap.VmaBlockBytes);
+        return selection.TryGet(out memory);
     }
 
-    private Texture2D? NextTexture()
+    private static IEnumerable<Texture2D?> EnumerateTextures()
     {
-        if (textures != null)
-        {
-            if (textures.MoveNext()) return textures.Current;
-            textures.Dispose();
-            textures = null;
-        }
         var packs = LoadedModManager.RunningModsListForReading;
-        if (packIndex >= packs.Count)
+        for (int i = 0; i < packs.Count; i++)
         {
-            scanComplete = true;
-            return null;
+            // Leave a point to check the frame budget between packs, even when a holder is empty.
+            yield return null;
+            var holder = packs[i].GetContentHolder<Texture2D>();
+            if (holder == null) continue;
+            foreach (Texture2D texture in holder.contentList.Values)
+                yield return texture;
         }
-        textures = packs[packIndex++].GetContentHolder<Texture2D>()?.contentList.Values.GetEnumerator();
-        return null;
+    }
+
+    private void ObserveWhileCapped(int maxDimension, double frameBudgetMs)
+    {
+        var timer = Stopwatch.StartNew();
+        for (int i = 0; i < MaxCandidatesPerFrame && !observationScan.Completed
+            && timer.Elapsed.TotalMilliseconds < frameBudgetMs; i++)
+        {
+            Texture2D? texture = observationScan.Take(true);
+            if (texture == null) continue;
+            var core = texture.CoreTexture;
+            if (core == null || !core.CanRehydrate || core.SourcePath == null
+                || core.width < 1 || core.width > maxDimension || core.height < 1 || core.height > maxDimension
+                || GlobalTextureAtlasManager.LeavesSourceEvicted(core))
+                continue;
+
+            string key = $"{core.width}x{core.height} {core.SourcePath}";
+            demand.Observe(texture, ReadRehydrates(key), ownRehydrates.GetValueOrDefault(key));
+        }
     }
 
     private static int ReadRehydrates(string key) =>
@@ -294,6 +313,7 @@ internal sealed class TexturePrewarm
     {
         if (!demandTracking) return;
         tracking.Restore();
+        observationScan.Reset();
         demandTracking = false;
         priority = null;
         demand.Clear();
@@ -314,12 +334,10 @@ internal sealed class TexturePrewarm
             priority = null;
             demand.Clear();
         }
-        textures?.Dispose();
-        textures = null;
+        uploadScan.Reset();
+        observationScan.Reset();
         deferred.Clear();
         refreshSchedule.BeginNextPass();
-        packIndex = 0;
-        scanComplete = false;
         demandPublished = false;
         nextWorkMs = 0;
         Memory = default;

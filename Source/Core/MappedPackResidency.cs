@@ -55,6 +55,7 @@ namespace MoreUseResources.Core
             public MemoryMappedViewAccessor? View;
             public byte* Pointer;
             public long Length;
+            public long TouchedOffset;
             public bool Closed;
 
             public void Close()
@@ -77,6 +78,7 @@ namespace MoreUseResources.Core
 
         private readonly WorkerPool _pool;
         private readonly Func<long> _clockMs;
+        private readonly Func<long>? _availableForTouch;
         private readonly object _gate = new object();
         private readonly Dictionary<string, Mapping> _maps = new Dictionary<string, Mapping>(StringComparer.Ordinal);
         private readonly HashSet<string> _failed = new HashSet<string>(StringComparer.Ordinal);
@@ -99,10 +101,11 @@ namespace MoreUseResources.Core
         private volatile bool _allowed;
         private bool _disposed;
 
-        public MappedPackResidency(WorkerPool pool, Func<long>? clockMs = null)
+        public MappedPackResidency(WorkerPool pool, Func<long>? clockMs = null, Func<long>? availableForTouch = null)
         {
             _pool = pool;
             _clockMs = clockMs ?? (() => Environment.TickCount64);
+            _availableForTouch = availableForTouch;
         }
 
         public PackResidencySnapshot Snapshot
@@ -159,13 +162,13 @@ namespace MoreUseResources.Core
         public void Pump(bool allowed, long limitBytes, long refreshIntervalMs)
         {
             _allowed = allowed;
+            ApplyLimit(Math.Max(0, limitBytes));
             if (!allowed) return;
             string path;
             int generation;
             lock (_gate)
             {
                 if (_disposed || _inFlight != 0) return;
-                _limit = Math.Max(0, limitBytes);
                 if (!_passOpen)
                 {
                     long now = _clockMs();
@@ -210,22 +213,44 @@ namespace MoreUseResources.Core
             });
         }
 
+        private void ApplyLimit(long limit)
+        {
+            List<Mapping>? closing = null;
+            lock (_gate)
+            {
+                if (_disposed || limit == _limit) return;
+                _limit = limit;
+                if (_mappedBytes > limit) closing = DetachViewsLocked();
+                else RestartPassLocked();
+            }
+            if (closing != null)
+                foreach (Mapping mapping in closing) mapping.Close();
+        }
+
+        private void RestartPassLocked()
+        {
+            _generation++;
+            _failed.Clear();
+            _cursor = 0;
+            _deferredThisPass = 0;
+            _deferred = 0;
+            _passOpen = true;
+        }
+
+        private List<Mapping> DetachViewsLocked()
+        {
+            var closing = new List<Mapping>(_maps.Values);
+            _maps.Clear();
+            _mappedBytes = 0;
+            RestartPassLocked();
+            return closing;
+        }
+
         /// <summary>Closes every view. A later <see cref="Pump"/> starts again from the first source.</summary>
         public void ReleaseAll()
         {
             List<Mapping> closing;
-            lock (_gate)
-            {
-                _generation++;
-                closing = new List<Mapping>(_maps.Values);
-                _maps.Clear();
-                _mappedBytes = 0;
-                _failed.Clear();
-                _cursor = 0;
-                _deferredThisPass = 0;
-                _deferred = 0;
-                _passOpen = true;
-            }
+            lock (_gate) closing = DetachViewsLocked();
             foreach (Mapping mapping in closing) mapping.Close();
         }
 
@@ -269,7 +294,7 @@ namespace MoreUseResources.Core
 
         private bool MapAndTouch(string path, int generation, CancellationToken token)
         {
-            if (!Live(generation, token)) return false;
+            if (!Live(generation, token) || (_availableForTouch?.Invoke() ?? long.MaxValue) <= 0) return false;
             Mapping? mapping;
             lock (_gate) { _maps.TryGetValue(path, out mapping); }
             if (mapping == null)
@@ -279,10 +304,11 @@ namespace MoreUseResources.Core
             }
 
             byte[] buffer = new byte[ChunkBytes];
-            long offset = 0;
+            long offset = mapping.TouchedOffset;
             while (offset < mapping.Length)
             {
-                if (!Live(generation, token)) return false;
+                if (!Live(generation, token) || (_availableForTouch?.Invoke() ?? long.MaxValue)
+                    < Math.Min(ChunkBytes, mapping.Length - offset)) return false;
                 lock (mapping.Sync)
                 {
                     if (mapping.Closed) return false;
@@ -302,8 +328,10 @@ namespace MoreUseResources.Core
                     for (int i = 0; i < want; i += PageBytes) sink ^= start[i];
                     GC.KeepAlive(sink);
                     offset += want;
+                    mapping.TouchedOffset = offset;
                 }
             }
+            mapping.TouchedOffset = 0;
             return true;
         }
 

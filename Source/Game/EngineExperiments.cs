@@ -68,8 +68,8 @@ internal sealed class EngineExperiments
         long now = Environment.TickCount64;
         if (now >= nextBudgetCheck)
         {
-            TexturePrewarm.TryReadTextureHeap(out budget);
             nextBudgetCheck = now + 250;
+            if (!TexturePrewarm.TryReadTextureHeap(out budget)) return;
         }
         if (!HasHeadroom(settings)) return;
 
