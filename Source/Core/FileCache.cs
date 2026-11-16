@@ -45,6 +45,12 @@ namespace MoreUseResources.Core
         private bool _readCopies = true;
         private volatile bool _paused;
         private int _generation;
+        // A maintenance pass only warms the OS page cache. Already-held native copies
+        // remain untouched because RimWorld cannot read the MOD's private buffers.
+        private bool _maintenancePass;
+        private bool _passRecorded;
+        private long _passCompletedAtMs;
+        private int _periodicRefreshes;
 
         private long _bytesRead;
         private long _filesRead;
@@ -72,6 +78,7 @@ namespace MoreUseResources.Core
         public int SourceCount { get { lock (_gate) { return _files.Count; } } }
         public int Cursor { get { lock (_gate) { return _cursor; } } }
         public int DeferredForBudget { get { lock (_gate) { return _deferredForBudget; } } }
+        public int PeriodicRefreshes { get { lock (_gate) { return _periodicRefreshes; } } }
 
         /// <summary>true when every source file was visited and nothing is being read.</summary>
         public bool PassComplete
@@ -114,6 +121,8 @@ namespace MoreUseResources.Core
             _cursor = 0;
             _deferredForBudget = 0;
             _needsPass = false;
+            _maintenancePass = false;
+            _passRecorded = false;
             Interlocked.Increment(ref _generation);
         }
 
@@ -130,7 +139,8 @@ namespace MoreUseResources.Core
         /// Schedules more reads. Called periodically from the control thread.
         /// <paramref name="limitBytes"/> is the most the store may hold right now.
         /// </summary>
-        public void Pump(bool active, bool hold, long limitBytes, bool allowCopies = true)
+        public void Pump(bool active, bool hold, long limitBytes, bool allowCopies = true,
+            long refreshIntervalMs = 0)
         {
             lock (_gate)
             {
@@ -163,27 +173,61 @@ namespace MoreUseResources.Core
                 {
                     if (_cursor >= _files.Count)
                     {
-                        if (_inFlight == 0 && now >= _cooldownUntilMs
-                            && (_needsPass || (_deferredForBudget > 0 && limitBytes >= _limitAtPassStart + RetryGrowthBytes)))
+                        if (_inFlight == 0)
                         {
-                            _cursor = 0;
-                            _deferredForBudget = 0;
-                            _needsPass = false;
-                            _limitAtPassStart = limitBytes;
-                            _cooldownUntilMs = now + RetryCooldownMs;
-                            continue;
+                            RecordPassFinishedLocked(now);
+                            // Memory release / formerly deferred copies take precedence over
+                            // optional OS-only maintenance. Preserve the existing cooldown.
+                            if (now >= _cooldownUntilMs
+                                && (_needsPass || (_deferredForBudget > 0
+                                    && limitBytes >= _limitAtPassStart + RetryGrowthBytes)))
+                            {
+                                _cursor = 0;
+                                _deferredForBudget = 0;
+                                _needsPass = false;
+                                _maintenancePass = false;
+                                _passRecorded = false;
+                                _limitAtPassStart = limitBytes;
+                                _cooldownUntilMs = now + RetryCooldownMs;
+                                continue;
+                            }
+                            if (!_needsPass && refreshIntervalMs > 0 && _passRecorded
+                                && now >= _passCompletedAtMs
+                                && now - _passCompletedAtMs >= refreshIntervalMs)
+                            {
+                                // Re-read the real assets into the OS file cache, including
+                                // already-held files, without allocating a second native copy.
+                                _cursor = 0;
+                                _warmed.Clear();
+                                _maintenancePass = true;
+                                _passRecorded = false;
+                                continue;
+                            }
                         }
                         return;
                     }
                     if (_inFlight >= maxInFlight) return;
                     if (_cursor == 0) _limitAtPassStart = limitBytes;
                     path = _files[_cursor++];
-                    copy = _readCopies;
-                    if (_done.Contains(path) || (!copy && _warmed.Contains(path))) continue;
+                    copy = !_maintenancePass && _readCopies;
+                    if (copy ? _done.Contains(path) : _warmed.Contains(path)) continue;
                     _inFlight++;
                     generation = _generation;
                 }
                 _pool.Enqueue(token => ReadOne(path, generation, copy, token));
+            }
+        }
+
+        /// <summary>All callers hold _gate; completed work is counted once per pass.</summary>
+        private void RecordPassFinishedLocked(long now)
+        {
+            if (_passRecorded || _needsPass || _inFlight != 0 || _cursor < _files.Count) return;
+            _passRecorded = true;
+            _passCompletedAtMs = now;
+            if (_maintenancePass)
+            {
+                _maintenancePass = false;
+                _periodicRefreshes++;
             }
         }
 
@@ -282,6 +326,7 @@ namespace MoreUseResources.Core
                         if (deferred) _deferredForBudget++;
                         // Interrupted (paused or cancelled): make sure a later pass picks it up again.
                         if (!completed && !deferred) _needsPass = true;
+                        RecordPassFinishedLocked(_clockMs());
                     }
                 }
             }
