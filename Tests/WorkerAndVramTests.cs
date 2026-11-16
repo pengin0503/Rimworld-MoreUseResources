@@ -204,6 +204,49 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Gpu_admission_defers_large_texture_but_allows_smaller_one()
+        {
+            const long MiB = 1L << 20;
+            var info = new VramInfo(6144 * MiB - 39 * MiB, 10240 * MiB, true);
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(info, 1024, 1024, 60, 2048 * MiB));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(info, 128, 128, 60, 2048 * MiB));
+        }
+
+        [Fact]
+        public void Gpu_admission_rejects_impossible_or_invalid_candidates()
+        {
+            const long MiB = 1L << 20;
+            var info = new VramInfo(0, 128 * MiB, true);
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(info, 64, 64, 10, 0));
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(info, 2048, 2048, 60, 0));
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(new VramInfo(0, 10240 * MiB, false),
+                    64, 64, 60, 0));
+        }
+
+        [Fact]
+        public void Gpu_backlog_is_bounded_and_fifo()
+        {
+            var backlog = new PrewarmDeferredQueue<Tex>(2);
+            Tex large = new Tex(); Tex small = new Tex(); Tex extra = new Tex();
+            Assert.True(backlog.Defer(large));
+            Assert.True(backlog.Defer(small));
+            Assert.False(backlog.Defer(extra));
+            Assert.Equal(1, backlog.Dropped);
+            Assert.Equal(2, backlog.Count);
+            Assert.Same(large, backlog.Take());
+            Assert.Same(small, backlog.Take());
+            Assert.Null(backlog.Take());
+            backlog.Defer(extra);
+            backlog.Clear();
+            Assert.Equal(0, backlog.Count);
+        }
+
+        [Fact]
         public void Time_budget_limits_work_per_frame()
         {
             FakeVram b = Backend(5000);
