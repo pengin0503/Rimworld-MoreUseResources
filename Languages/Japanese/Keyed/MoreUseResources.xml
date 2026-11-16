@@ -5,6 +5,8 @@
   <MUR_BackgroundError>バックグラウンド処理でエラーが発生しました。</MUR_BackgroundError>
   <MUR_CurrentPhase>フェーズ {0} ／ モード {1}</MUR_CurrentPhase>
   <MUR_CpuStatus>CPU {0} ／ ワーカー枠 {1} ／ 待機ジョブ {2}</MUR_CpuStatus>
+  <MUR_CpuWorkerUsage>MODワーカーCPU使用率（全論理CPU比） {0}% ／ ジョブ完了 {1} ／ 失敗 {2}</MUR_CpuWorkerUsage>
+  <MUR_PerformanceStatus>計測FPS {0} ／ TPS {1} ／ 平均フレーム間隔 {2} ms ／ 最大フレーム間隔 {3} ms（約1秒窓）</MUR_PerformanceStatus>
   <MUR_RamStatus>RAM {0} ／ ファイルコピー {1} MiB ／ 予約 {2} MiB</MUR_RamStatus>
   <MUR_PrefetchStatus>先読み {0}/{1} ／ 完了 {2} ファイル（{3} MiB） ／ エラー {4} ／ 予算超過 {5}</MUR_PrefetchStatus>
   <MUR_AuditStatus>アセット検査 {0}/{1} ／ 完全一致の重複 {2} 件（{3} MiB） ／ 計算済み {4} MiB ／ エラー {5} ／ 対象外 {6}</MUR_AuditStatus>
