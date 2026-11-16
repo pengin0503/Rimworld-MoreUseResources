@@ -72,12 +72,20 @@ namespace MoreUseResources.Core
         public int CpuMaxWorkers = 0;
         public WorkerPriority CpuWorkerPriority = WorkerPriority.Lowest;
         public bool CpuSyntheticLoad = false;
+        /// <summary>Fingerprint enabled mods' real files and report exact duplicate content.</summary>
+        public bool CpuIndexAssets = true;
+        /// <summary>Minutes between full read-only content integrity passes; 0 disables rescans.</summary>
+        public int CpuAuditRescanMinutes = 10;
+        /// <summary>Periodically re-enumerate mod asset folders for added/deleted files; 0 = startup only.</summary>
+        public int AssetDiscoveryRescanMinutes = 10;
         public int CpuSyntheticDutyPercent = 50;
         public ProcessPriorityChoice ProcessPriority = ProcessPriorityChoice.Unchanged;
 
         // ---- RAM ----
         public bool RamEnabled = true;
         public bool RamFileCache = true;
+        /// <summary>Minutes between OS cache rewarming passes of real mod/game assets; zero disables.</summary>
+        public int RamPrefetchRefreshMinutes = 5;
         /// <summary>true: keep the bytes in this process. false: read once to warm the OS file cache and drop them.</summary>
         public bool RamHoldCopies = true;
         public int RamFileCacheMiB = 4096;
@@ -94,6 +102,10 @@ namespace MoreUseResources.Core
         public int GpuKeepFreeMiB = 2048;
         /// <summary>Main-thread milliseconds per frame, in tenths (20 = 2.0 ms).</summary>
         public int GpuFrameBudgetTenthMs = 20;
+        /// <summary>How often to recheck Waylith's real textures after a full pass; 0 disables maintenance.</summary>
+        public int GpuRefreshSeconds = 60;
+        /// <summary>Largest actual game texture edge to prewarm; increase at your own risk.</summary>
+        public int GpuMaxTextureDimension = 1024;
         public bool GpuReserve = false;
         public int GpuReserveMiB = 2048;
 
@@ -181,12 +193,17 @@ namespace MoreUseResources.Core
             FrameGuardMs = FrameGuardMs <= 0 ? 0 : Math.Clamp(FrameGuardMs, 20, 500);
             CpuMaxWorkers = Math.Clamp(CpuMaxWorkers, 0, 256);
             CpuSyntheticDutyPercent = Math.Clamp(CpuSyntheticDutyPercent, 5, 100);
+            CpuAuditRescanMinutes = Math.Clamp(CpuAuditRescanMinutes, 0, 120);
+            AssetDiscoveryRescanMinutes = Math.Clamp(AssetDiscoveryRescanMinutes, 0, 120);
             RamFileCacheMiB = Math.Clamp(RamFileCacheMiB, 64, 262144);
+            RamPrefetchRefreshMinutes = Math.Clamp(RamPrefetchRefreshMinutes, 0, 120);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
             RamReserveMiB = Math.Clamp(RamReserveMiB, 64, 262144);
             GpuTargetPercent = Math.Clamp(GpuTargetPercent, 10, MaxGpuTargetPercent);
             GpuKeepFreeMiB = Math.Clamp(GpuKeepFreeMiB, 512, 65536);
             GpuFrameBudgetTenthMs = Math.Clamp(GpuFrameBudgetTenthMs, 2, 80);
+            GpuRefreshSeconds = Math.Clamp(GpuRefreshSeconds, 0, 600);
+            GpuMaxTextureDimension = Math.Clamp(GpuMaxTextureDimension, 1024, 4096);
             GpuReserveMiB = Math.Clamp(GpuReserveMiB, 64, 65536);
         }
 

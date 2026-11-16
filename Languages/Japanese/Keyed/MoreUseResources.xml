@@ -5,11 +5,16 @@
   <MUR_BackgroundError>バックグラウンド処理でエラーが発生しました。</MUR_BackgroundError>
   <MUR_CurrentPhase>フェーズ {0} ／ モード {1}</MUR_CurrentPhase>
   <MUR_CpuStatus>CPU {0} ／ ワーカー枠 {1} ／ 待機ジョブ {2}</MUR_CpuStatus>
+  <MUR_CpuWorkerUsage>MODワーカーCPU使用率（全論理CPU比） {0}% ／ ジョブ完了 {1} ／ 失敗 {2}</MUR_CpuWorkerUsage>
+  <MUR_PerformanceStatus>計測FPS {0} ／ TPS {1} ／ 平均フレーム間隔 {2} ms ／ 最大フレーム間隔 {3} ms（約1秒窓）</MUR_PerformanceStatus>
   <MUR_RamStatus>RAM {0} ／ ファイルコピー {1} MiB ／ 予約 {2} MiB</MUR_RamStatus>
   <MUR_PrefetchStatus>先読み {0}/{1} ／ 完了 {2} ファイル（{3} MiB） ／ エラー {4} ／ 予算超過 {5}</MUR_PrefetchStatus>
+  <MUR_AuditStatus>アセット検査 {0}/{1} ／ 完全一致の重複 {2} 件（{3} MiB） ／ 計算済み {4} MiB ／ エラー {5} ／ 対象外 {6}</MUR_AuditStatus>
   <MUR_MemoryStatus>ゲームのワーキングセット {0} MiB ／ OS使用可能 {1} MiB ／ メモリ制御 {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>OSのメモリ情報を確認できるまで、RAMの追加確保と先読みを停止します。</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} ／ 先読み済みテクスチャ {1}</MUR_GpuStatus>
+  <MUR_GpuMaintenanceStatus>GPU先読み完了回数 {0}</MUR_GpuMaintenanceStatus>
+  <MUR_GpuQueueStatus>GPU先読み保留 {0} 件 ／ 保留上限で除外 {1} 件 ／ 恒久的に対象外 {2} 件 ／ アップロード失敗 {3} 件</MUR_GpuQueueStatus>
   <MUR_GpuBudgetStatus>GPUの最終計測値 使用 {0} MiB ／ ドライバー予算 {1} MiB</MUR_GpuBudgetStatus>
   <MUR_Auto>自動</MUR_Auto>
   <MUR_ForceRun>今すぐ実行</MUR_ForceRun>
@@ -38,10 +43,19 @@
   <MUR_PhaseSaving>セーブ・オートセーブ</MUR_PhaseSaving>
   <MUR_PhaseQuitting>終了処理</MUR_PhaseQuitting>
   <MUR_CpuEnabled>CPUワーカーを使用</MUR_CpuEnabled>
+  <MUR_CpuIndexAssets>CPUで有効MODのアセットをSHA-256検査し、重複ファイルを索引化</MUR_CpuIndexAssets>
+  <MUR_FileDiscoveryInterval>MODの新規・削除ファイルを再探索する間隔 {0} 分（0で再探索OFF）</MUR_FileDiscoveryInterval>
+  <MUR_CpuAuditInterval>アセット再検査間隔 {0} 分（0で無効）</MUR_CpuAuditInterval>
+  <MUR_AuditRescanStatus>アセット検査の完了回数 {0} ／ 内容変更を検出したファイル {1} 件</MUR_AuditRescanStatus>
+  <MUR_XmlAuditStatus>XML解析 {0} ファイル ／ Def {1} 個 ／ Def名の重複候補 {2} 件 ／ XML解析失敗 {3} ／ 容量超過で対象外 {4} ／ 索引上限で省略 {5}</MUR_XmlAuditStatus>
+  <MUR_TextureAuditStatus>画像検査 PNG/DDS {0} 件 ／ 正常な構造・ヘッダー {1} ／ 不正 {2} ／ 容量超過 {3} ／ RGBA8換算 {4} MiB ／ 検査バイト {5} MiB</MUR_TextureAuditStatus>
   <MUR_Workers>最大CPUワーカー数 {0}（0は自動）</MUR_Workers>
   <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
   <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
   <MUR_PrefetchEnabled>有効なMODのアセットをOSのファイルキャッシュへ先読み</MUR_PrefetchEnabled>
+  <MUR_PrefetchRefreshInterval>OSキャッシュへの再先読み間隔 {0} 分（0で停止）</MUR_PrefetchRefreshInterval>
+  <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
+  <MUR_FileDiscoveryStatus>MODアセット一覧の探索完了 {0} 回 ／ 一覧更新 {1} 回</MUR_FileDiscoveryStatus>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
@@ -52,6 +66,8 @@
   <MUR_GpuTarget>目標上限 ドライバー予算の {0}%</MUR_GpuTarget>
   <MUR_GpuKeepFree>VRAMに残す余裕 {0} MiB</MUR_GpuKeepFree>
   <MUR_GpuFrameBudget>1回の処理時間の目安 {0} × 0.1 ms</MUR_GpuFrameBudget>
+  <MUR_GpuRefreshInterval>テクスチャ再先読み間隔 {0} 秒（0で再走査OFF）</MUR_GpuRefreshInterval>
+  <MUR_GpuMaxTextureDimension>GPU先読み対象の最大幅・高さ {0} px（大きいほど高負荷）</MUR_GpuMaxTextureDimension>
   <MUR_GpuHint>テクスチャ先読みは、Vulkanの予算を取得できる単体GPUで、安定したフレーム中に実行します。常駐したテクスチャの管理はWaylithが行います。</MUR_GpuHint>
   <MUR_GpuUnsupported>テクスチャ先読みの対応版はWindows 1.7.5011 rev24です。</MUR_GpuUnsupported>
   <MUR_GpuDisabled>無効</MUR_GpuDisabled>

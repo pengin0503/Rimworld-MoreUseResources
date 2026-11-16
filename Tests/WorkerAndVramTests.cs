@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using MoreUseResources.Core;
 using Xunit;
@@ -204,6 +205,67 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Gpu_admission_defers_large_texture_but_allows_smaller_one()
+        {
+            const long MiB = 1L << 20;
+            var info = new VramInfo(6144 * MiB - 39 * MiB, 10240 * MiB, true);
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(info, 1024, 1024, 60, 2048 * MiB));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(info, 128, 128, 60, 2048 * MiB));
+        }
+
+        [Fact]
+        public void Gpu_admission_rejects_impossible_or_invalid_candidates()
+        {
+            const long MiB = 1L << 20;
+            var info = new VramInfo(0, 128 * MiB, true);
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(info, 64, 64, 10, 0));
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(info, 2048, 2048, 60, 0));
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(new VramInfo(0, 10240 * MiB, false),
+                    64, 64, 60, 0));
+        }
+
+        [Fact]
+        public void User_can_expand_prewarmer_to_2048_or_4096_pixel_real_textures()
+        {
+            const long MiB = 1L << 20;
+            var budget = new VramInfo(1024 * MiB, 16L << 30, true);
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(budget, 2048, 2048, 60, 2048 * MiB));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(budget, 2048, 2048, 60, 2048 * MiB, 2048));
+            Assert.Equal(PrewarmAdmission.Reject,
+                PrewarmAdmissionPolicy.Evaluate(budget, 4096, 4096, 60, 2048 * MiB, 2048));
+            Assert.Equal(PrewarmAdmission.Upload,
+                PrewarmAdmissionPolicy.Evaluate(budget, 4096, 4096, 60, 2048 * MiB, 4096));
+            var nearCap = new VramInfo(budget.CapBytes(60, 2048 * MiB) - 64 * MiB, 16L << 30, true);
+            Assert.Equal(PrewarmAdmission.Defer,
+                PrewarmAdmissionPolicy.Evaluate(nearCap, 4096, 4096, 60, 2048 * MiB, 4096));
+        }
+
+        [Fact]
+        public void Gpu_backlog_is_bounded_and_fifo()
+        {
+            var backlog = new PrewarmDeferredQueue<Tex>(2);
+            Tex large = new Tex(); Tex small = new Tex(); Tex extra = new Tex();
+            Assert.True(backlog.Defer(large));
+            Assert.True(backlog.Defer(small));
+            Assert.False(backlog.Defer(extra));
+            Assert.Equal(1, backlog.Dropped);
+            Assert.Equal(2, backlog.Count);
+            Assert.Same(large, backlog.Take());
+            Assert.Same(small, backlog.Take());
+            Assert.Null(backlog.Take());
+            backlog.Defer(extra);
+            backlog.Clear();
+            Assert.Equal(0, backlog.Count);
+        }
+
+        [Fact]
         public void Time_budget_limits_work_per_frame()
         {
             FakeVram b = Backend(5000);
@@ -267,6 +329,51 @@ namespace MoreUseResources.Tests
             for (int i = 0; i < 12; i++) w.Step(1.0, 60, 0, 50);
             Assert.True(b.All[7].Resident);
             Assert.Equal(20, w.TrackedOurs);      // no duplicates
+        }
+    }
+
+    public class TextureRefreshScheduleTests
+    {
+        [Fact]
+        public void Refresh_only_after_completed_pass_and_elapsed_interval()
+        {
+            var schedule = new TextureRefreshSchedule();
+            Assert.False(schedule.ShouldRefresh(10_000, 30));
+            schedule.MarkPassCompleted(10_000);
+            Assert.Equal(1, schedule.PassesCompleted);
+            Assert.False(schedule.ShouldRefresh(39_999, 30));
+            Assert.True(schedule.ShouldRefresh(40_000, 30));
+            schedule.BeginNextPass();
+            Assert.False(schedule.ShouldRefresh(60_000, 30));
+            schedule.MarkPassCompleted(60_000);
+            Assert.Equal(2, schedule.PassesCompleted);
+            Assert.False(schedule.ShouldRefresh(89_999, 30));
+            Assert.True(schedule.ShouldRefresh(90_000, 30));
+        }
+
+        [Fact]
+        public void Refresh_can_be_disabled_and_survives_clock_regression()
+        {
+            var schedule = new TextureRefreshSchedule();
+            schedule.MarkPassCompleted(100_000);
+            Assert.False(schedule.ShouldRefresh(999_999, 0));
+            Assert.False(schedule.ShouldRefresh(5_000, 30));
+            Assert.False(schedule.ShouldRefresh(34_999, 30));
+            Assert.True(schedule.ShouldRefresh(35_000, 30));
+        }
+
+        [Fact]
+        public void Invalidating_scan_does_not_reset_lifetime_pass_count()
+        {
+            var schedule = new TextureRefreshSchedule();
+            schedule.MarkPassCompleted(0);
+            schedule.BeginNextPass();
+            schedule.MarkPassCompleted(50_000);
+            Assert.Equal(2, schedule.PassesCompleted);
+            schedule.BeginNextPass();
+            Assert.False(schedule.ShouldRefresh(100_000, 30));
+            schedule.MarkPassCompleted(101_000);
+            Assert.Equal(3, schedule.PassesCompleted);
         }
     }
 
@@ -425,6 +532,68 @@ namespace MoreUseResources.Tests
             Assert.Equal(0, st.ReserveHeldBytes);
             Assert.Equal(0, st.WorkersActive);
             Assert.False(st.Plan.Cpu.Active);
+        }
+
+        [Fact]
+        public void Background_discovery_rechecks_live_mod_folders_and_preserves_unchanged_sources()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "mur-scan-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(root, "Defs"));
+            try
+            {
+                string first = Path.Combine(root, "Defs", "first.xml");
+                string second = Path.Combine(root, "Defs", "second.xml");
+                File.WriteAllText(first, "<Defs />");
+                long now = 1000;
+                var settings = new ResourceSettings
+                {
+                    RamFileCache = false, CpuIndexAssets = true, AssetDiscoveryRescanMinutes = 1
+                };
+                using var controller = new ResourceController(new FakeProbe(), 2,
+                    initial: settings, assetFolders: new[] { root },
+                    assetClockMs: () => Interlocked.Read(ref now));
+                controller.PublishSignals(new RawGameSignals { PlayDataLoaded = true,
+                    Stage = ProgramStage.Entry, Focused = true });
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileSources == 1 && status.FileDiscoveryPasses == 1;
+                }, TimeSpan.FromSeconds(10)));
+
+                Interlocked.Exchange(ref now, 61_100);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    return controller.GetStatus().FileDiscoveryPasses == 2;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(1, controller.GetStatus().FileSourceChanges);
+                Assert.Equal(1, controller.GetStatus().FileSources);
+
+                File.WriteAllText(second, "<Defs><ThingDef><defName>NewAsset</defName></ThingDef></Defs>");
+                Interlocked.Exchange(ref now, 121_200);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileDiscoveryPasses == 3 && status.FileSources == 2;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(2, controller.GetStatus().FileSourceChanges);
+                File.Delete(first);
+                Interlocked.Exchange(ref now, 181_300);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileDiscoveryPasses == 4 && status.FileSources == 1;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(3, controller.GetStatus().FileSourceChanges);
+            }
+            finally { Directory.Delete(root, true); }
         }
 
         [Fact]

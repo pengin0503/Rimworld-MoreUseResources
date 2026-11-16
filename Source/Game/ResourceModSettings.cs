@@ -34,10 +34,14 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.CpuEnabled, "cpuEnabled", Defaults.CpuEnabled);
         Scribe_Values.Look(ref Value.CpuMaxWorkers, "cpuMaxWorkers", Defaults.CpuMaxWorkers);
         Scribe_Values.Look(ref Value.CpuSyntheticLoad, "cpuSyntheticLoad", Defaults.CpuSyntheticLoad);
+        Scribe_Values.Look(ref Value.CpuIndexAssets, "cpuIndexAssets", Defaults.CpuIndexAssets);
+        Scribe_Values.Look(ref Value.CpuAuditRescanMinutes, "cpuAuditRescanMinutes", Defaults.CpuAuditRescanMinutes);
+        Scribe_Values.Look(ref Value.AssetDiscoveryRescanMinutes, "assetDiscoveryRescanMinutes", Defaults.AssetDiscoveryRescanMinutes);
         Scribe_Values.Look(ref Value.CpuSyntheticDutyPercent, "cpuSyntheticDutyPercent", Defaults.CpuSyntheticDutyPercent);
 
         Scribe_Values.Look(ref Value.RamEnabled, "ramEnabled", Defaults.RamEnabled);
         Scribe_Values.Look(ref Value.RamFileCache, "prefetchFiles", Defaults.RamFileCache);
+        Scribe_Values.Look(ref Value.RamPrefetchRefreshMinutes, "prefetchRefreshMinutes", Defaults.RamPrefetchRefreshMinutes);
         Scribe_Values.Look(ref Value.RamHoldCopies, "holdCopies", Defaults.RamHoldCopies);
         Scribe_Values.Look(ref Value.RamFileCacheMiB, "cacheMiB", Defaults.RamFileCacheMiB);
         Scribe_Values.Look(ref Value.RamMinFreeMiB, "keepFreeMiB", Defaults.RamMinFreeMiB);
@@ -48,6 +52,8 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.GpuTargetPercent, "vramTargetPercent", Defaults.GpuTargetPercent);
         Scribe_Values.Look(ref Value.GpuKeepFreeMiB, "vramKeepFreeMiB", Defaults.GpuKeepFreeMiB);
         Scribe_Values.Look(ref Value.GpuFrameBudgetTenthMs, "gpuFrameBudgetTenthMs", Defaults.GpuFrameBudgetTenthMs);
+        Scribe_Values.Look(ref Value.GpuRefreshSeconds, "gpuRefreshSeconds", Defaults.GpuRefreshSeconds);
+        Scribe_Values.Look(ref Value.GpuMaxTextureDimension, "gpuMaxTextureDimension", Defaults.GpuMaxTextureDimension);
 
         for (int i = 0; i < ResourceSettings.PhaseCount; i++)
         {

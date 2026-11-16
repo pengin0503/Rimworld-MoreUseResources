@@ -66,10 +66,26 @@ public sealed class MoreUseResourcesMod : Mod
 
         list.Label("MUR_CurrentPhase".Translate(PhaseName(status.Plan.Phase.Phase), ModeName(runtime.Manual)));
         list.Label("MUR_CpuStatus".Translate(Reason(status.Plan.Cpu), status.WorkersActive, status.PendingJobs));
+        list.Label("MUR_CpuWorkerUsage".Translate((status.WorkerCpuShare * 100).ToString("F1"), status.JobsCompleted, status.JobsFailed));
+        PerformanceSnapshot perf = runtime.Performance;
+        list.Label("MUR_PerformanceStatus".Translate(perf.FramesPerSecond.ToString("F1"),
+            perf.TicksPerSecond.ToString("F1"), perf.AverageFrameIntervalMs.ToString("F1"),
+            perf.WorstFrameIntervalMs.ToString("F1")));
         list.Label("MUR_RamStatus".Translate(Reason(status.Plan.Ram),
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
+        list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
+        list.Label("MUR_FileDiscoveryStatus".Translate(status.FileDiscoveryPasses, status.FileSourceChanges));
+        list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
+            InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
+        list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));
+        list.Label("MUR_XmlAuditStatus".Translate(status.XmlFilesChecked, status.XmlDefinitions,
+            status.XmlDefinitionCollisions, status.XmlParseFailures, status.XmlFilesSkipped,
+            status.XmlKeysOmitted));
+        list.Label("MUR_TextureAuditStatus".Translate(status.TextureFilesChecked, status.TextureFilesValid,
+            status.TextureFilesMalformed, status.TextureFilesSkipped,
+            InMiB(status.TextureRgba8EquivalentBytes), InMiB(status.TextureBytesValidated)));
         if (status.Memory.FromOperatingSystem)
             list.Label("MUR_MemoryStatus".Translate(InMiB(status.ProcessWorkingSet), InMiB(status.Memory.AvailablePhysical),
                 ("MUR_Memory" + status.MemoryState).Translate().ToString()));
@@ -78,6 +94,9 @@ public sealed class MoreUseResourcesMod : Mod
 
         TexturePrewarm gpu = runtime.Gpu;
         list.Label("MUR_GpuStatus".Translate(gpu.StatusKey.Translate().ToString(), gpu.Uploaded));
+        list.Label("MUR_GpuMaintenanceStatus".Translate(gpu.PassesCompleted));
+        list.Label("MUR_GpuQueueStatus".Translate(gpu.DeferredCount, gpu.DroppedDeferred,
+            gpu.RejectedTextures, gpu.FailedUploads));
         if (gpu.Memory.DriverReported)
             list.Label("MUR_GpuBudgetStatus".Translate(InMiB(gpu.Memory.UsageBytes), InMiB(gpu.Memory.BudgetBytes)));
 
@@ -177,12 +196,16 @@ public sealed class MoreUseResourcesMod : Mod
     {
         list.GapLine();
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
+        Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
+        Slider(list, "MUR_CpuAuditInterval", ref s.CpuAuditRescanMinutes, 0, 120, 5);
+        Slider(list, "MUR_FileDiscoveryInterval", ref s.AssetDiscoveryRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
         Toggle(list, "MUR_Synthetic", ref s.CpuSyntheticLoad);
         Slider(list, "MUR_Duty", ref s.CpuSyntheticDutyPercent, 5, 100, 5);
 
         list.GapLine();
         Toggle(list, "MUR_PrefetchEnabled", ref s.RamFileCache);
+        Slider(list, "MUR_PrefetchRefreshInterval", ref s.RamPrefetchRefreshMinutes, 0, 120, 5);
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
@@ -197,6 +220,8 @@ public sealed class MoreUseResourcesMod : Mod
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);
             Slider(list, "MUR_GpuFrameBudget", ref s.GpuFrameBudgetTenthMs, 2, 80, 1);
+            Slider(list, "MUR_GpuRefreshInterval", ref s.GpuRefreshSeconds, 0, 600, 10);
+            Slider(list, "MUR_GpuMaxTextureDimension", ref s.GpuMaxTextureDimension, 1024, 4096, 1024);
         }
         else list.Label("MUR_GpuUnsupported".Translate());
         list.Label("MUR_GpuHint".Translate());

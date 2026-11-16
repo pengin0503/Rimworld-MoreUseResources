@@ -51,6 +51,27 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Can_release_one_owned_file_without_evicting_unrelated_native_copies()
+        {
+            using var store = new NativeBlockStore();
+            var events = new List<string>();
+            store.BlockReleased += events.Add;
+            foreach (string key in new[] { "first", "second" })
+            {
+                Assert.True(store.TryBegin(256, 1000, out IntPtr p));
+                NativeBlockStore.Touch(p, 256);
+                store.Commit(p, 256, key);
+            }
+            Assert.Equal(256, store.ReleaseKey("first"));
+            Assert.Equal(256, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+            Assert.Equal(new[] { "first" }, events);
+            Assert.Equal(0, store.ReleaseKey("first"));
+            Assert.Equal(256, store.ReleaseAll());
+            Assert.Equal(new[] { "first", "second" }, events);
+        }
+
+        [Fact]
         public void Commit_after_dispose_frees_instead_of_leaking()
         {
             var store = new NativeBlockStore();
@@ -309,6 +330,220 @@ namespace MoreUseResources.Tests
             Assert.Equal(0, store.TotalBytes);
             Assert.Equal(2_500_000, cache.BytesRead);
             Assert.Equal(1, cache.FilesRead);
+        }
+
+        [Fact]
+        public void Periodic_OS_cache_refresh_reads_real_assets_without_duplicating_native_copies()
+        {
+            string path = MakeFile("real-texture.png", 250_000);
+            long now = 1000;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 1_000_000);
+            Assert.Equal(250_000, store.CommittedBytes);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+
+            // Disk image changes after initial copy. A refresh must read the real new file
+            // into the operating system's cache, never duplicate the held native buffer.
+            File.WriteAllBytes(path, new byte[300_000]);
+            Interlocked.Exchange(ref now, 1000 + 5 * 60_000 - 1);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 5 * 60_000);
+            Assert.Equal(1, cache.FilesRead);
+
+            Interlocked.Increment(ref now);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 5 * 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, cache.FilesRead);
+            // This fixture deliberately changed the real bytes. A stale private copy
+            // is now released, not kept indefinitely; its replacement is cooldown-gated.
+            Assert.Equal(0, store.CommittedBytes);
+            Assert.Equal(550_000, cache.BytesRead);
+            Assert.True(cache.PassComplete);
+        }
+
+        [Fact]
+        public void Warm_only_mode_reloads_at_each_interval_without_retaining_RimWorld_RAM()
+        {
+            string path = MakeFile("asset.xml", 64_000);
+            long now = 1000;
+            using var pool = new WorkerPool(2);
+            using var store = new NativeBlockStore();
+            pool.Configure(2, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, false, 0);
+            Interlocked.Exchange(ref now, 1000 + 60_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, false, 0, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, cache.FilesRead);
+            Assert.Equal(128_000, cache.BytesRead);
+            Assert.Equal(0, store.TotalBytes);
+        }
+
+        [Fact]
+        public void Zero_refresh_interval_never_requeues_completed_file_reads()
+        {
+            string path = MakeFile("disabled.bin", 64_000);
+            long now = 1000;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, false, 0);
+            Interlocked.Exchange(ref now, 100_000_000);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(true, false, 0, refreshIntervalMs: 0);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+        }
+
+        [Fact]
+        public void Periodic_maintenance_waits_until_resource_activation_resumes()
+        {
+            string path = MakeFile("paused-asset.xml", 30_000);
+            long now = 0;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, false, 0);
+            Interlocked.Exchange(ref now, 65_000);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(false, false, 0, refreshIntervalMs: 60_000);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, false, 0, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, cache.FilesRead);
+        }
+
+        [Fact]
+        public void Memory_release_cooldown_takes_priority_over_periodic_refresh()
+        {
+            string path = MakeFile("released.bin", 150_000);
+            long now = 0;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 1_000_000);
+            store.ReleaseAll();
+            Interlocked.Exchange(ref now, 10_000);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 1000);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(0, store.CommittedBytes);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+
+            Interlocked.Exchange(ref now, 31_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 1000);
+                Thread.Sleep(5);
+                return cache.FilesRead >= 2 && store.CommittedBytes == 150_000;
+            }, TimeSpan.FromSeconds(10)));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Changed_real_file_invalidates_only_stale_Ram_copy_after_periodic_OS_refresh(bool sameSize)
+        {
+            string changed = MakeFile("changed.bin", 120_000);
+            string stable = MakeFile("stable.bin", 90_000);
+            long now = 1000;
+            using var pool = new WorkerPool(2);
+            using var store = new NativeBlockStore();
+            pool.Configure(2, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { changed, stable });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 2, true, 300_000);
+            Assert.Equal(210_000, store.CommittedBytes);
+
+            // The byte sequence changes; a same-size update must also invalidate a copy.
+            File.WriteAllBytes(changed, new byte[sameSize ? 120_000 : 140_000]);
+            Interlocked.Exchange(ref now, 62_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 300_000, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            // One old native copy is released, while the unrelated file stays in RAM.
+            Assert.Equal(90_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+
+            // The post-eviction cooldown prevents immediate allocation churn.
+            for (int i = 0; i < 5; i++) cache.Pump(true, true, 300_000);
+            Assert.Equal(90_000, store.CommittedBytes);
+            Interlocked.Exchange(ref now, 93_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 300_000);
+                Thread.Sleep(5);
+                return store.CommittedBytes == (sameSize ? 210_000 : 230_000);
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, store.BlockCount);
+        }
+
+        [Fact]
+        public void Reset_does_not_double_allocate_for_files_already_held()
+        {
+            string path = MakeFile("one.bin", 64_000);
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool);
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 100_000);
+            cache.Reset();
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 2, true, 100_000);
+            Assert.Equal(64_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+        }
+
+        [Fact]
+        public void Unchanged_live_file_keeps_its_native_copy_across_periodic_refresh()
+        {
+            string unchanged = MakeFile("unchanged.bin", 120_000);
+            long now = 1000;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { unchanged });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 200_000);
+            Assert.Equal(120_000, store.CommittedBytes);
+            Interlocked.Exchange(ref now, 61_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 200_000, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(120_000, store.CommittedBytes);
+            Assert.Equal(1, store.BlockCount);
+            Assert.Equal(2, cache.FilesRead);
         }
 
         [Fact]

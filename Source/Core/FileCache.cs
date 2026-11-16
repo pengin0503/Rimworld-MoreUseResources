@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -31,6 +32,7 @@ namespace MoreUseResources.Core
         private readonly object _gate = new object();
         private readonly HashSet<string> _done = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _warmed = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _copyHashes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private List<string> _files = new List<string>();
         private int _cursor;
@@ -45,6 +47,12 @@ namespace MoreUseResources.Core
         private bool _readCopies = true;
         private volatile bool _paused;
         private int _generation;
+        // A maintenance pass only warms the OS page cache. Already-held native copies
+        // remain untouched because RimWorld cannot read the MOD's private buffers.
+        private bool _maintenancePass;
+        private bool _passRecorded;
+        private long _passCompletedAtMs;
+        private int _periodicRefreshes;
 
         private long _bytesRead;
         private long _filesRead;
@@ -72,6 +80,7 @@ namespace MoreUseResources.Core
         public int SourceCount { get { lock (_gate) { return _files.Count; } } }
         public int Cursor { get { lock (_gate) { return _cursor; } } }
         public int DeferredForBudget { get { lock (_gate) { return _deferredForBudget; } } }
+        public int PeriodicRefreshes { get { lock (_gate) { return _periodicRefreshes; } } }
 
         /// <summary>true when every source file was visited and nothing is being read.</summary>
         public bool PassComplete
@@ -92,7 +101,6 @@ namespace MoreUseResources.Core
             {
                 _files = list;
                 Reset();
-                _store.ReleaseAll();
                 _needsPass = false;
                 _cooldownUntilMs = 0;
             }
@@ -105,6 +113,10 @@ namespace MoreUseResources.Core
             {
                 _done.Clear();
                 _warmed.Clear();
+                _copyHashes.Clear();
+                // Reset means a fresh live-file snapshot: retained native copies must
+                // be released before the same paths can be committed again.
+                _store.ReleaseAll();
                 RestartPass();
             }
         }
@@ -114,6 +126,8 @@ namespace MoreUseResources.Core
             _cursor = 0;
             _deferredForBudget = 0;
             _needsPass = false;
+            _maintenancePass = false;
+            _passRecorded = false;
             Interlocked.Increment(ref _generation);
         }
 
@@ -130,7 +144,8 @@ namespace MoreUseResources.Core
         /// Schedules more reads. Called periodically from the control thread.
         /// <paramref name="limitBytes"/> is the most the store may hold right now.
         /// </summary>
-        public void Pump(bool active, bool hold, long limitBytes, bool allowCopies = true)
+        public void Pump(bool active, bool hold, long limitBytes, bool allowCopies = true,
+            long refreshIntervalMs = 0)
         {
             lock (_gate)
             {
@@ -140,7 +155,6 @@ namespace MoreUseResources.Core
                 {
                     _hold = hold;
                     Reset();
-                    _store.ReleaseAll();
                 }
                 bool readCopies = hold && allowCopies;
                 if (_readCopies != readCopies)
@@ -163,23 +177,44 @@ namespace MoreUseResources.Core
                 {
                     if (_cursor >= _files.Count)
                     {
-                        if (_inFlight == 0 && now >= _cooldownUntilMs
-                            && (_needsPass || (_deferredForBudget > 0 && limitBytes >= _limitAtPassStart + RetryGrowthBytes)))
+                        if (_inFlight == 0)
                         {
-                            _cursor = 0;
-                            _deferredForBudget = 0;
-                            _needsPass = false;
-                            _limitAtPassStart = limitBytes;
-                            _cooldownUntilMs = now + RetryCooldownMs;
-                            continue;
+                            RecordPassFinishedLocked(now);
+                            // Memory release / formerly deferred copies take precedence over
+                            // optional OS-only maintenance. Preserve the existing cooldown.
+                            if (now >= _cooldownUntilMs
+                                && (_needsPass || (_deferredForBudget > 0
+                                    && limitBytes >= _limitAtPassStart + RetryGrowthBytes)))
+                            {
+                                _cursor = 0;
+                                _deferredForBudget = 0;
+                                _needsPass = false;
+                                _maintenancePass = false;
+                                _passRecorded = false;
+                                _limitAtPassStart = limitBytes;
+                                _cooldownUntilMs = now + RetryCooldownMs;
+                                continue;
+                            }
+                            if (!_needsPass && refreshIntervalMs > 0 && _passRecorded
+                                && now >= _passCompletedAtMs
+                                && now - _passCompletedAtMs >= refreshIntervalMs)
+                            {
+                                // Re-read the real assets into the OS file cache, including
+                                // already-held files, without allocating a second native copy.
+                                _cursor = 0;
+                                _warmed.Clear();
+                                _maintenancePass = true;
+                                _passRecorded = false;
+                                continue;
+                            }
                         }
                         return;
                     }
                     if (_inFlight >= maxInFlight) return;
                     if (_cursor == 0) _limitAtPassStart = limitBytes;
                     path = _files[_cursor++];
-                    copy = _readCopies;
-                    if (_done.Contains(path) || (!copy && _warmed.Contains(path))) continue;
+                    copy = !_maintenancePass && _readCopies;
+                    if (copy ? _done.Contains(path) : _warmed.Contains(path)) continue;
                     _inFlight++;
                     generation = _generation;
                 }
@@ -187,11 +222,28 @@ namespace MoreUseResources.Core
             }
         }
 
+        /// <summary>All callers hold _gate; completed work is counted once per pass.</summary>
+        private void RecordPassFinishedLocked(long now)
+        {
+            if (_passRecorded || _inFlight != 0 || _cursor < _files.Count) return;
+            if (_maintenancePass)
+            {
+                _maintenancePass = false;
+                _periodicRefreshes++;
+            }
+            // A stale copy eviction can request another pass. Count the completed
+            // OS refresh first, then obey the 30-second memory-release cooldown.
+            if (_needsPass) return;
+            _passRecorded = true;
+            _passCompletedAtMs = now;
+        }
+
         private void OnBlockReleased(string key)
         {
             lock (_gate)
             {
                 _done.Remove(key);
+                _copyHashes.Remove(key);
                 _needsPass = true;
                 _cooldownUntilMs = Math.Max(_cooldownUntilMs, _clockMs() + ReleaseCooldownMs);
             }
@@ -227,9 +279,10 @@ namespace MoreUseResources.Core
                         return;
                     }
                     bool ok = false;
+                    string? fingerprint = null;
                     try
                     {
-                        ok = ReadInto(handle, (byte*)ptr, length, generation, token);
+                        ok = ReadInto(handle, (byte*)ptr, length, generation, token, out fingerprint);
                     }
                     finally
                     {
@@ -239,6 +292,7 @@ namespace MoreUseResources.Core
                             if (completed)
                             {
                                 _store.Commit(ptr, length, path);
+                                if (fingerprint != null) _copyHashes[path] = fingerprint;
                                 _done.Add(path);
                                 _warmed.Add(path);
                                 copied = true;
@@ -249,7 +303,24 @@ namespace MoreUseResources.Core
                 }
                 else
                 {
-                    completed = ReadAndDiscard(handle, length, generation, token);
+                    string? previousHash;
+                    lock (_gate) { _copyHashes.TryGetValue(path, out previousHash); }
+                    completed = ReadAndDiscard(handle, length, generation, token,
+                        previousHash != null, out string? currentHash);
+                    if (completed && previousHash != null
+                        && currentHash != null
+                        && !StringComparer.Ordinal.Equals(previousHash, currentHash))
+                    {
+                        lock (_gate)
+                        {
+                            // Do not evict a replacement that another worker has just
+                            // committed. Only the original hash is eligible.
+                            if (MayRead(generation, token)
+                                && _copyHashes.TryGetValue(path, out string? latest)
+                                && StringComparer.Ordinal.Equals(latest, previousHash))
+                                _store.ReleaseKey(path);
+                        }
+                    }
                 }
                 if (completed)
                 {
@@ -282,6 +353,7 @@ namespace MoreUseResources.Core
                         if (deferred) _deferredForBudget++;
                         // Interrupted (paused or cancelled): make sure a later pass picks it up again.
                         if (!completed && !deferred) _needsPass = true;
+                        RecordPassFinishedLocked(_clockMs());
                     }
                 }
             }
@@ -309,8 +381,11 @@ namespace MoreUseResources.Core
             }
         }
 
-        private bool ReadInto(SafeFileHandle handle, byte* dest, long length, int generation, CancellationToken token)
+        private bool ReadInto(SafeFileHandle handle, byte* dest, long length, int generation,
+            CancellationToken token, out string? fingerprint)
         {
+            fingerprint = null;
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             long offset = 0;
             while (offset < length)
             {
@@ -318,14 +393,20 @@ namespace MoreUseResources.Core
                 int want = (int)Math.Min(ChunkBytes, length - offset);
                 int got = RandomAccess.Read(handle, new Span<byte>(dest + offset, want), offset);
                 if (got <= 0) return false; // file shrank while reading
+                hash.AppendData(new ReadOnlySpan<byte>(dest + offset, got));
                 offset += got;
                 Interlocked.Add(ref _bytesRead, got);
             }
+            fingerprint = Convert.ToHexString(hash.GetHashAndReset());
             return true;
         }
 
-        private bool ReadAndDiscard(SafeFileHandle handle, long length, int generation, CancellationToken token)
+        private bool ReadAndDiscard(SafeFileHandle handle, long length, int generation,
+            CancellationToken token, bool calculateHash, out string? fingerprint)
         {
+            fingerprint = null;
+            using IncrementalHash? hash = calculateHash
+                ? IncrementalHash.CreateHash(HashAlgorithmName.SHA256) : null;
             byte[] buffer = ArrayPool<byte>.Shared.Rent(ChunkBytes);
             try
             {
@@ -333,11 +414,15 @@ namespace MoreUseResources.Core
                 while (offset < length)
                 {
                     if (!MayRead(generation, token)) return false;
-                    int got = RandomAccess.Read(handle, buffer.AsSpan(0, (int)Math.Min(ChunkBytes, length - offset)), offset);
+                    int got = RandomAccess.Read(handle,
+                        buffer.AsSpan(0, (int)Math.Min(ChunkBytes, length - offset)), offset);
                     if (got <= 0) return false;
+                    hash?.AppendData(buffer, 0, got);
                     offset += got;
                     Interlocked.Add(ref _bytesRead, got);
                 }
+                if (hash != null)
+                    fingerprint = Convert.ToHexString(hash.GetHashAndReset());
                 return true;
             }
             finally
