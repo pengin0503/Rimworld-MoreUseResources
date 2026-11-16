@@ -26,11 +26,19 @@ namespace MoreUseResources.Core
         public readonly int XmlDefinitionCollisions;
         public readonly int XmlFilesSkipped;
         public readonly int XmlKeysOmitted;
+        public readonly int TextureFilesChecked;
+        public readonly int TextureFilesValid;
+        public readonly int TextureFilesMalformed;
+        public readonly int TextureFilesSkipped;
+        public readonly long TextureRgba8EquivalentBytes;
+        public readonly long TextureBytesValidated;
 
         internal AssetAuditSnapshot(int sources, int completed, int duplicates, long duplicateBytes,
             long hashedBytes, int errors, int skipped, bool complete, int passesCompleted, long changedFiles,
             int xmlFilesChecked, int xmlParseFailures, int xmlDefinitions, int xmlDefinitionCollisions,
-            int xmlFilesSkipped, int xmlKeysOmitted)
+            int xmlFilesSkipped, int xmlKeysOmitted,
+            int textureFilesChecked, int textureFilesValid, int textureFilesMalformed,
+            int textureFilesSkipped, long textureRgba8EquivalentBytes, long textureBytesValidated)
         {
             Sources = sources;
             Completed = completed;
@@ -48,6 +56,12 @@ namespace MoreUseResources.Core
             XmlDefinitionCollisions = xmlDefinitionCollisions;
             XmlFilesSkipped = xmlFilesSkipped;
             XmlKeysOmitted = xmlKeysOmitted;
+            TextureFilesChecked = textureFilesChecked;
+            TextureFilesValid = textureFilesValid;
+            TextureFilesMalformed = textureFilesMalformed;
+            TextureFilesSkipped = textureFilesSkipped;
+            TextureRgba8EquivalentBytes = textureRgba8EquivalentBytes;
+            TextureBytesValidated = textureBytesValidated;
         }
     }
 
@@ -91,6 +105,12 @@ namespace MoreUseResources.Core
         private int _xmlDefinitionCollisions;
         private int _xmlFilesSkipped;
         private int _xmlKeysOmitted;
+        private int _textureFilesChecked;
+        private int _textureFilesValid;
+        private int _textureFilesMalformed;
+        private int _textureFilesSkipped;
+        private long _textureRgba8EquivalentBytes;
+        private long _textureBytesValidated;
 
         public AssetAudit(WorkerPool pool, Func<bool>? mayRun = null, Func<long>? clockMs = null)
         {
@@ -112,7 +132,9 @@ namespace MoreUseResources.Core
                         _duplicateBytes, _hashedBytes, _errors, _skipped,
                         _cursor >= _files.Count && _inFlight == 0 && !_retry && _completed.Count == _files.Count,
                         _passesCompleted, _changedFiles, _xmlFilesChecked, _xmlParseFailures,
-                        _xmlDefinitions, _xmlDefinitionCollisions, _xmlFilesSkipped, _xmlKeysOmitted);
+                        _xmlDefinitions, _xmlDefinitionCollisions, _xmlFilesSkipped, _xmlKeysOmitted,
+                        _textureFilesChecked, _textureFilesValid, _textureFilesMalformed, _textureFilesSkipped,
+                        _textureRgba8EquivalentBytes, _textureBytesValidated);
                 }
             }
         }
@@ -135,6 +157,7 @@ namespace MoreUseResources.Core
                 _firstByHash.Clear();
                 _lastHashByPath.Clear();
                 ResetXmlResults();
+                ResetTextureResults();
                 _passesCompleted = 0;
                 _changedFiles = 0;
                 _passRecorded = false;
@@ -186,6 +209,7 @@ namespace MoreUseResources.Core
                     _errors = 0;
                     _skipped = 0;
                     ResetXmlResults();
+                    ResetTextureResults();
                 }
                 if (_cursor >= _files.Count && _inFlight == 0 && _retry)
                 {
@@ -236,6 +260,31 @@ namespace MoreUseResources.Core
             }
         }
 
+        /// <summary>Only called while _gate is held.</summary>
+        private void ResetTextureResults()
+        {
+            _textureFilesChecked = 0;
+            _textureFilesValid = 0;
+            _textureFilesMalformed = 0;
+            _textureFilesSkipped = 0;
+            _textureRgba8EquivalentBytes = 0;
+            _textureBytesValidated = 0;
+        }
+
+        /// <summary>Only called while _gate is held.</summary>
+        private void RecordTexture(TextureAssetReport result)
+        {
+            _textureFilesChecked++;
+            if (result.State == TextureAssetState.Valid)
+            {
+                _textureFilesValid++;
+                _textureRgba8EquivalentBytes += result.Rgba8EquivalentBytes;
+                _textureBytesValidated += result.ValidatedBytes;
+            }
+            else if (result.State == TextureAssetState.Malformed) _textureFilesMalformed++;
+            else _textureFilesSkipped++;
+        }
+
         private bool MayRun(int generation, CancellationToken token) =>
             !token.IsCancellationRequested && Volatile.Read(ref _active)
             && generation == Volatile.Read(ref _generation) && (_mayRun?.Invoke() ?? true);
@@ -284,13 +333,16 @@ namespace MoreUseResources.Core
                     || File.GetLastWriteTimeUtc(path) != expectedWrite) return;
                 string fingerprint = size.ToString("X") + ":" + Convert.ToHexString(hash.GetHashAndReset());
                 XmlManifestReport? xml = null;
-                if (string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase))
-                {
+                string extension = Path.GetExtension(path);
+                if (string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase))
                     xml = XmlManifestScanner.Scan(path, token);
-                    // The file may have changed while the XML reader was inspecting it.
-                    if (!MayRun(generation, token) || stream.Length != expectedLength
-                        || File.GetLastWriteTimeUtc(path) != expectedWrite) return;
-                }
+                TextureAssetReport? texture = null;
+                if (string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(extension, ".dds", StringComparison.OrdinalIgnoreCase))
+                    texture = TextureAssetInspector.Inspect(path, token);
+                // A real file may have changed while another reader was inspecting it.
+                if (!MayRun(generation, token) || stream.Length != expectedLength
+                    || File.GetLastWriteTimeUtc(path) != expectedWrite) return;
                 lock (_gate)
                 {
                     if (!MayRun(generation, token)) return;
@@ -302,6 +354,7 @@ namespace MoreUseResources.Core
                         _lastHashByPath[path] = fingerprint;
                         _hashedBytes += size;
                         if (xml.HasValue) RecordXml(xml.Value);
+                        if (texture.HasValue) RecordTexture(texture.Value);
                         if (_firstByHash.ContainsKey(fingerprint))
                         {
                             _duplicates++;
