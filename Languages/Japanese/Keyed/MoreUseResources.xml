@@ -40,6 +40,8 @@
   <MUR_PhaseQuitting>終了処理</MUR_PhaseQuitting>
   <MUR_CpuEnabled>CPUワーカーを使用</MUR_CpuEnabled>
   <MUR_CpuIndexAssets>CPUで有効MODのアセットをSHA-256検査し、重複ファイルを索引化</MUR_CpuIndexAssets>
+  <MUR_CpuAuditInterval>アセット再検査間隔 {0} 分（0で無効）</MUR_CpuAuditInterval>
+  <MUR_AuditRescanStatus>アセット検査の完了回数 {0} ／ 内容変更を検出したファイル {1} 件</MUR_AuditRescanStatus>
   <MUR_Workers>最大CPUワーカー数 {0}（0は自動）</MUR_Workers>
   <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
   <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
