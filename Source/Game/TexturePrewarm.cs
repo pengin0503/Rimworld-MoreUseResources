@@ -23,12 +23,14 @@ internal sealed class TexturePrewarm
     private IEnumerator<Texture2D>? textures;
     private int packIndex;
     private readonly PrewarmDeferredQueue<Texture2D> deferred = new(MaxDeferredCandidates);
+    private readonly TextureRefreshSchedule refreshSchedule = new();
     private long nextWorkMs;
     private bool scanComplete;
 
     internal string StatusKey { get; private set; } = "MUR_GpuDisabled";
     internal VramInfo Memory { get; private set; }
     internal long Uploaded { get; private set; }
+    internal int PassesCompleted => refreshSchedule.PassesCompleted;
     internal int DeferredCount => deferred.Count;
     internal long DroppedDeferred => deferred.Dropped;
     internal long RejectedTextures { get; private set; }
@@ -79,12 +81,17 @@ internal sealed class TexturePrewarm
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void Step(ResourceSettings settings, float intensity)
     {
+        long now = Environment.TickCount64;
         if (scanComplete && deferred.Count == 0)
         {
-            StatusKey = "MUR_GpuComplete";
-            return;
+            refreshSchedule.MarkPassCompleted(now);
+            if (!refreshSchedule.ShouldRefresh(now, settings.GpuRefreshSeconds))
+            {
+                StatusKey = "MUR_GpuComplete";
+                return;
+            }
+            ResetScan(); // release only our enumerator/queue; Waylith still owns real textures
         }
-        long now = Environment.TickCount64;
         if (now < nextWorkMs) return;
 
         var device = EngineApplication.Instance?.GraphicsDevice;
@@ -174,6 +181,7 @@ internal sealed class TexturePrewarm
 
         if (scanComplete && deferred.Count == 0)
         {
+            refreshSchedule.MarkPassCompleted(now);
             StatusKey = "MUR_GpuComplete";
             return;
         }
@@ -227,6 +235,7 @@ internal sealed class TexturePrewarm
         textures?.Dispose();
         textures = null;
         deferred.Clear();
+        refreshSchedule.BeginNextPass();
         packIndex = 0;
         scanComplete = false;
         nextWorkMs = 0;
