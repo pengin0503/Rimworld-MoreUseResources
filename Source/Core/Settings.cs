@@ -74,6 +74,8 @@ namespace MoreUseResources.Core
         public bool CpuSyntheticLoad = false;
         /// <summary>Fingerprint enabled mods' real files and report exact duplicate content.</summary>
         public bool CpuIndexAssets = true;
+        /// <summary>Minutes between full read-only content integrity passes; 0 disables rescans.</summary>
+        public int CpuAuditRescanMinutes = 10;
         public int CpuSyntheticDutyPercent = 50;
         public ProcessPriorityChoice ProcessPriority = ProcessPriorityChoice.Unchanged;
 
@@ -183,6 +185,7 @@ namespace MoreUseResources.Core
             FrameGuardMs = FrameGuardMs <= 0 ? 0 : Math.Clamp(FrameGuardMs, 20, 500);
             CpuMaxWorkers = Math.Clamp(CpuMaxWorkers, 0, 256);
             CpuSyntheticDutyPercent = Math.Clamp(CpuSyntheticDutyPercent, 5, 100);
+            CpuAuditRescanMinutes = Math.Clamp(CpuAuditRescanMinutes, 0, 120);
             RamFileCacheMiB = Math.Clamp(RamFileCacheMiB, 64, 262144);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
             RamReserveMiB = Math.Clamp(RamReserveMiB, 64, 262144);
