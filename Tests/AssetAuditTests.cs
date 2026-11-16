@@ -130,6 +130,62 @@ namespace MoreUseResources.Tests
             Assert.Equal(0, audit.Snapshot.ChangedFiles);
         }
 
+        [Fact]
+        public void Xml_scanner_reads_direct_Def_names_not_nested_fields()
+        {
+            using var directory = new TemporaryDirectory();
+            string path = directory.Write("Defs/example.xml",
+                "<Defs><ThingDef><defName>Chair</defName><comps><li><defName>Nested</defName></li></comps></ThingDef>" +
+                "<ThingDef><defName>Table</defName></ThingDef><ThingDef Abstract='True'><defName>AbstractOnly</defName></ThingDef></Defs>");
+            XmlManifestReport report = XmlManifestScanner.Scan(path, CancellationToken.None);
+            Assert.False(report.ParseFailed);
+            Assert.False(report.Skipped);
+            Assert.Equal(3, report.DefinitionElements);
+            Assert.Contains("ThingDef:Chair", report.DefinitionKeys);
+            Assert.Contains("ThingDef:Table", report.DefinitionKeys);
+            Assert.DoesNotContain("ThingDef:Nested", report.DefinitionKeys);
+            Assert.DoesNotContain("ThingDef:AbstractOnly", report.DefinitionKeys);
+        }
+
+        [Fact]
+        public void Xml_scanner_rejects_external_entities_and_malformed_xml_without_reading_any_external_file()
+        {
+            using var directory = new TemporaryDirectory();
+            string xml = "<!DOCTYPE Defs [<!ENTITY external SYSTEM 'file:///etc/passwd'>]>" +
+                "<Defs><ThingDef><defName>&external;</defName></ThingDef></Defs>";
+            string path = directory.Write("Defs/entity.xml", xml);
+            XmlManifestReport result = XmlManifestScanner.Scan(path, CancellationToken.None);
+            Assert.True(result.ParseFailed);
+            Assert.Empty(result.DefinitionKeys);
+
+            string broken = directory.Write("Defs/broken.xml", "<Defs><ThingDef>");
+            Assert.True(XmlManifestScanner.Scan(broken, CancellationToken.None).ParseFailed);
+        }
+
+        [Fact]
+        public void Xml_audit_counts_actual_Def_collisions_and_parser_errors()
+        {
+            using var directory = new TemporaryDirectory();
+            string first = directory.Write("Defs/a.xml", "<Defs><ThingDef><defName>Chair</defName></ThingDef></Defs>");
+            string duplicate = directory.Write("Defs/b.xml", "<Defs><ThingDef><defName>Chair</defName></ThingDef></Defs>");
+            string invalid = directory.Write("Defs/c.xml", "<Defs><ThingDef>");
+            using var pool = new WorkerPool(3);
+            pool.Configure(3, true, false, 1, ThreadPriority.Lowest);
+            var audit = new AssetAudit(pool);
+            audit.SetSources(new[] { first, duplicate, invalid });
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 3);
+                Thread.Sleep(5);
+                return audit.Snapshot.Complete;
+            }, TimeSpan.FromSeconds(10)));
+
+            Assert.Equal(3, audit.Snapshot.XmlFilesChecked);
+            Assert.Equal(1, audit.Snapshot.XmlParseFailures);
+            Assert.Equal(2, audit.Snapshot.XmlDefinitions);
+            Assert.Equal(1, audit.Snapshot.XmlDefinitionCollisions);
+        }
+
         private sealed class TemporaryDirectory : IDisposable
         {
             public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mur-audit-" + Guid.NewGuid().ToString("N"));
