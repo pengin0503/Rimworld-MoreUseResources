@@ -72,6 +72,8 @@ namespace MoreUseResources.Core
         public int CpuMaxWorkers = 0;
         public WorkerPriority CpuWorkerPriority = WorkerPriority.Lowest;
         public bool CpuSyntheticLoad = false;
+        /// <summary>Fingerprint enabled mods' real files and report exact duplicate content.</summary>
+        public bool CpuIndexAssets = true;
         public int CpuSyntheticDutyPercent = 50;
         public ProcessPriorityChoice ProcessPriority = ProcessPriorityChoice.Unchanged;
 
