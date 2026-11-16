@@ -95,7 +95,7 @@ namespace MoreUseResources.Core
         private readonly IMemoryProbe _probe;
         private readonly int _logicalProcessors;
         private readonly Func<bool>? _savingProbe;
-        private readonly IReadOnlyList<string>? _assetFolders;
+        private IReadOnlyList<string>? _assetFolders;
         private readonly Func<long> _assetClockMs;
         private readonly Func<CancellationToken, IReadOnlyList<string>>? _packDiscovery;
         private int _enginePackFiles;
@@ -193,6 +193,16 @@ namespace MoreUseResources.Core
             _settings = copy;
         }
 
+        /// <summary>
+        /// Publishes immutable mod asset paths captured on the game thread after mod loading.
+        /// File scanning never touches the game's live mod list.
+        /// </summary>
+        public void SetAssetFolders(IReadOnlyList<string> folders)
+        {
+            if (folders == null) throw new ArgumentNullException(nameof(folders));
+            Volatile.Write(ref _assetFolders, new List<string>(folders));
+        }
+
         /// <summary>Main thread: latest facts about the game.</summary>
         public void PublishSignals(in RawGameSignals signals)
         {
@@ -251,7 +261,9 @@ namespace MoreUseResources.Core
                 if (_knownSources != null && _knownSources.SetEquals(set)) return;
                 _knownSources = set;
                 Volatile.Write(ref _enginePackFiles, packCount);
-                _fileCache.SetSources(prefetch);
+                // Engine packs must always be OS-cache-only, even when RamHoldCopies is
+                // enabled. Some ZIPs exceed the 1 GiB native-copy limit.
+                _fileCache.SetSources(prefetch, prefetchOnly: prefetch.GetRange(0, packCount));
                 _packResidency.SetSources(assetPacks);
                 // A new or removed engine pack does not invalidate audit results of loose assets.
                 if (_knownLooseSources == null || !_knownLooseSources.SetEquals(looseSet))
@@ -388,7 +400,8 @@ namespace MoreUseResources.Core
 
         private void QueueAssetScan(int rescanMinutes)
         {
-            if (_assetFolders == null) return;
+            IReadOnlyList<string>? folders = Volatile.Read(ref _assetFolders);
+            if (folders == null) return;
             int state = Volatile.Read(ref _assetScan);
             if (state == 1) return; // exactly one live scanner at a time
             long now = _assetClockMs();
@@ -403,7 +416,7 @@ namespace MoreUseResources.Core
             {
                 try
                 {
-                    List<string> files = GameAssetFiles.Discover(_assetFolders, token,
+                    List<string> files = GameAssetFiles.Discover(folders, token,
                         () => _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()));
                     if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
                     {

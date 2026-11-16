@@ -85,6 +85,9 @@ namespace MoreUseResources.Core
         private int _inFlight;
         private int _generation;
         private long _mappedBytes;
+        // Reservations are separate from published mappings. An obsolete generation can
+        // release its reservation without corrupting the new generation's accounting.
+        private long _reservedBytes;
         private long _limit;
         private int _passes;
         private int _deferred;
@@ -139,6 +142,8 @@ namespace MoreUseResources.Core
                     _maps.Remove(key);
                 }
                 _sources = list;
+                // Reject in-flight mappings selected by the old source snapshot.
+                _generation++;
                 _failed.Clear();
                 _cursor = 0;
                 _deferredThisPass = 0;
@@ -189,7 +194,7 @@ namespace MoreUseResources.Core
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is NotSupportedException)
                 {
-                    Fail(path, ex);
+                    Fail(path, generation, ex);
                 }
                 finally
                 {
@@ -239,11 +244,12 @@ namespace MoreUseResources.Core
             _passCompletedAtMs = _clockMs();
         }
 
-        private void Fail(string path, Exception ex)
+        private void Fail(string path, int generation, Exception ex)
         {
             Mapping? broken = null;
             lock (_gate)
             {
+                if (generation != _generation) return;
                 _errors++;
                 _lastError = ex.GetType().Name + ": " + ex.Message;
                 _failed.Add(path);
@@ -283,8 +289,14 @@ namespace MoreUseResources.Core
                     int want = (int)Math.Min(ChunkBytes, mapping.Length - offset);
                     // An ordinary read first: a failing disk raises IOException here instead of
                     // faulting inside the mapped view below.
-                    int read = RandomAccess.Read(mapping.Handle!, buffer.AsSpan(0, want), offset);
-                    if (read < want) throw new IOException("Asset pack became shorter while it was mapped.");
+                    int totalRead = 0;
+                    while (totalRead < want)
+                    {
+                        int read = RandomAccess.Read(mapping.Handle!, buffer.AsSpan(totalRead, want - totalRead),
+                            offset + totalRead);
+                        if (read <= 0) throw new IOException("Asset pack became shorter while it was mapped.");
+                        totalRead += read;
+                    }
                     byte sink = 0;
                     byte* start = mapping.Pointer + offset;
                     for (int i = 0; i < want; i += PageBytes) sink ^= start[i];
@@ -315,14 +327,15 @@ namespace MoreUseResources.Core
                 lock (_gate)
                 {
                     if (generation != _generation || _disposed) return null;
-                    if (_mappedBytes + length > _limit)
+                    if (_mappedBytes + _reservedBytes + length > _limit)
                     {
                         _deferredThisPass++;
                         skipped = true;
                         return null;
                     }
-                    // Reserve the bytes before mapping so that parallel passes cannot overshoot.
-                    _mappedBytes += length;
+                    // Reserve separately: ReleaseAll and SetSources may invalidate this
+                    // generation while CreateFromFile is still running.
+                    _reservedBytes += length;
                 }
                 mapping.Length = length;
                 try
@@ -335,9 +348,10 @@ namespace MoreUseResources.Core
                     mapping.Pointer = pointer + mapping.View.PointerOffset;
                     lock (_gate)
                     {
-                        if (generation == _generation && !_disposed)
+                        if (generation == _generation && !_disposed && _sources.Contains(path))
                         {
                             _maps[path] = mapping;
+                            _mappedBytes += length;
                             published = true;
                         }
                     }
@@ -348,8 +362,8 @@ namespace MoreUseResources.Core
                     {
                         lock (_gate)
                         {
-                            // ReleaseAll already zeroed the counter for an older generation.
-                            if (generation == _generation) _mappedBytes -= length;
+                            // Always give back this reservation, including across generations.
+                            _reservedBytes -= length;
                         }
                     }
                 }

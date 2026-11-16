@@ -58,16 +58,23 @@ namespace MoreUseResources.Core
         /// <summary>The engine's atlas page pack: "pages.&lt;16 hex&gt;.zip".</summary>
         public static bool IsKeyedPagesPack(string fileName)
         {
-            return fileName.Length == KeyedPrefix.Length + HashHexLength + 4
-                && fileName.StartsWith(KeyedPrefix, StringComparison.Ordinal)
-                && fileName.EndsWith(".zip", StringComparison.Ordinal);
+            if (fileName.Length != KeyedPrefix.Length + HashHexLength + 4
+                || !fileName.StartsWith(KeyedPrefix, StringComparison.Ordinal)
+                || !fileName.EndsWith(".zip", StringComparison.Ordinal)) return false;
+            for (int i = KeyedPrefix.Length; i < KeyedPrefix.Length + HashHexLength; i++)
+            {
+                char c = fileName[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+            }
+            return true;
         }
 
         /// <summary>
         /// Returns existing pack files, most valuable first: texture cache packs of the given mod
         /// roots, then asset packs of the load folders and <paramref name="extraFiles"/>.
-        /// When several cache generations hold a pack of the same name only the most recently
-        /// written one is returned, because the engine uses one generation and sweeps the rest.
+        /// Candidate packs from all cache generations and compression settings are included,
+        /// newest first. File timestamps alone cannot identify the engine's active cache;
+        /// dropping older candidates could omit the pack currently opened by the engine.
         /// </summary>
         public static List<string> Discover(string? cacheDataPath, IReadOnlyList<string> modRoots,
             IReadOnlyList<string> loadFolders, IReadOnlyList<string>? extraFiles, CancellationToken token)
@@ -105,8 +112,9 @@ namespace MoreUseResources.Core
                 if (!string.IsNullOrEmpty(name)) wanted.Add(SanitizeRootName(name));
             }
 
-            // file name -> newest candidate across cache generations
-            var newest = new Dictionary<string, (string Path, DateTime Written)>(comparer);
+            // Keep distinct full paths, not only the newest basename: the active cache
+            // generation is not reliably identifiable from file modification timestamps.
+            var candidates = new List<(string Path, DateTime Written)>();
             try
             {
                 string cacheRoot = Path.Combine(cacheDataPath!, TextureCacheDirectory);
@@ -128,8 +136,7 @@ namespace MoreUseResources.Core
                             try { written = File.GetLastWriteTimeUtc(file); }
                             catch (IOException) { continue; }
                             catch (UnauthorizedAccessException) { continue; }
-                            if (!newest.TryGetValue(fileName, out var current) || written > current.Written)
-                                newest[fileName] = (file, written);
+                            candidates.Add((file, written));
                         }
                     }
                 }
@@ -137,13 +144,15 @@ namespace MoreUseResources.Core
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
 
-            var ordered = new List<string>(newest.Count);
-            foreach (var entry in newest.Values) ordered.Add(entry.Path);
-            ordered.Sort(StringComparer.Ordinal);
-            foreach (string path in ordered)
+            candidates.Sort((a, b) =>
+            {
+                int byDate = b.Written.CompareTo(a.Written);
+                return byDate != 0 ? byDate : StringComparer.Ordinal.Compare(a.Path, b.Path);
+            });
+            foreach (var candidate in candidates)
             {
                 if (result.Count >= MaxPacks) return;
-                if (seen.Add(path)) result.Add(path);
+                if (seen.Add(candidate.Path)) result.Add(candidate.Path);
             }
         }
 

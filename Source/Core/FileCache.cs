@@ -35,6 +35,7 @@ namespace MoreUseResources.Core
         private readonly Dictionary<string, string> _copyHashes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private List<string> _files = new List<string>();
+        private HashSet<string> _prefetchOnly = new HashSet<string>(StringComparer.Ordinal);
         private int _cursor;
         private int _inFlight;
         private int _deferredForBudget;
@@ -89,7 +90,7 @@ namespace MoreUseResources.Core
         }
 
         /// <summary>Replaces the list of candidate files (highest priority first) and restarts the pass.</summary>
-        public void SetSources(IEnumerable<string> files)
+        public void SetSources(IEnumerable<string> files, IEnumerable<string>? prefetchOnly = null)
         {
             var list = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -97,9 +98,16 @@ namespace MoreUseResources.Core
             {
                 if (!string.IsNullOrEmpty(f) && seen.Add(f)) list.Add(f);
             }
+            var osOnly = new HashSet<string>(StringComparer.Ordinal);
+            if (prefetchOnly != null)
+            {
+                foreach (string f in prefetchOnly)
+                    if (seen.Contains(f)) osOnly.Add(f);
+            }
             lock (_gate)
             {
                 _files = list;
+                _prefetchOnly = osOnly;
                 Reset();
                 _needsPass = false;
                 _cooldownUntilMs = 0;
@@ -213,7 +221,7 @@ namespace MoreUseResources.Core
                     if (_inFlight >= maxInFlight) return;
                     if (_cursor == 0) _limitAtPassStart = limitBytes;
                     path = _files[_cursor++];
-                    copy = !_maintenancePass && _readCopies;
+                    copy = !_maintenancePass && _readCopies && !_prefetchOnly.Contains(path);
                     if (copy ? _done.Contains(path) : _warmed.Contains(path)) continue;
                     _inFlight++;
                     generation = _generation;
@@ -266,14 +274,14 @@ namespace MoreUseResources.Core
                     completed = true;
                     return;
                 }
+                if (copy && length > MaxFileBytes)
+                {
+                    // The copy is too large, but the file still needs to warm the OS cache.
+                    Interlocked.Increment(ref _skippedLarge);
+                    copy = false;
+                }
                 if (copy)
                 {
-                    if (length > MaxFileBytes)
-                    {
-                        Interlocked.Increment(ref _skippedLarge);
-                        completed = true;
-                        return;
-                    }
                     if (!TryBeginCopy(length, generation, token, out IntPtr ptr, out deferred))
                     {
                         return;

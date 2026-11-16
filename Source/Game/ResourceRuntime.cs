@@ -20,7 +20,25 @@ internal sealed class ResourceRuntime
     private readonly TexturePrewarm gpu = new();
     private readonly PerformanceMeter performance = new();
     private readonly GcMonitor gcMonitor = new();
+    private readonly bool recordLoadTimingOnLaunch;
     private ResourceSettings settings;
+    private PackSourceSnapshot? packSources;
+
+    private sealed class PackSourceSnapshot
+    {
+        public readonly string? CacheDataPath;
+        public readonly List<string> Roots;
+        public readonly List<string> Folders;
+        public readonly string[] ExtraFiles;
+
+        public PackSourceSnapshot(string? cacheDataPath, List<string> roots, List<string> folders, string[] extraFiles)
+        {
+            CacheDataPath = cacheDataPath;
+            Roots = roots;
+            Folders = folders;
+            ExtraFiles = extraFiles;
+        }
+    }
     private int savingDepth;
     private int stopped;
     private long lastInputMs = Environment.TickCount64;
@@ -31,8 +49,11 @@ internal sealed class ResourceRuntime
     internal ResourceRuntime(ResourceSettings settings)
     {
         this.settings = settings;
+        recordLoadTimingOnLaunch = settings.RecordLoadTiming;
+        // Mod constructors run before all mods finish loading. Defer asset-list
+        // capture until the first fully loaded frame on the game thread.
         controller = new ResourceController(new SystemMemoryProbe(), Environment.ProcessorCount,
-            () => Volatile.Read(ref savingDepth) > 0, settings, CaptureFolders(), packDiscovery: CapturePackDiscovery());
+            () => Volatile.Read(ref savingDepth) > 0, settings, packDiscovery: CapturePackDiscovery());
     }
 
     internal bool HooksReady { get; private set; }
@@ -56,7 +77,7 @@ internal sealed class ResourceRuntime
                 prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeUpdate), flags)),
                 postfix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterUpdate), flags)));
             Volatile.Write(ref instance, this);
-            if (settings.RecordLoadTiming) LoadTiming.Install(harmony);
+            if (recordLoadTimingOnLaunch) LoadTiming.Install(harmony);
             Application.quitting += Stop;
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             controller.Start();
@@ -82,20 +103,19 @@ internal sealed class ResourceRuntime
     }
 
     /// <summary>
-    /// Captures plain strings on the main thread so that the worker which enumerates the engine's
-    /// texture-cache and asset packs never touches game objects.
+    /// The worker reads only the published immutable snapshot. It never reads RimWorld
+    /// objects, and an absent snapshot simply means discovery has not started yet.
     /// </summary>
-    private static Func<CancellationToken, IReadOnlyList<string>> CapturePackDiscovery()
+    private Func<CancellationToken, IReadOnlyList<string>> CapturePackDiscovery()
     {
-        var roots = new List<string>();
-        foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+        return token =>
         {
-            if (!string.IsNullOrEmpty(pack.RootDir)) roots.Add(Path.GetFullPath(pack.RootDir));
-        }
-        List<string> folders = CaptureFolders();
-        string? cacheDataPath = WaylithRuntime.Current?.App.CacheDataPath;
-        var extra = new[] { Path.Combine(AppContext.BaseDirectory, EnginePackFiles.AssetPackFileName) };
-        return token => EnginePackFiles.Discover(cacheDataPath, roots, folders, extra, token);
+            PackSourceSnapshot? snapshot = Volatile.Read(ref packSources);
+            return snapshot == null
+                ? Array.Empty<string>()
+                : EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
+                    snapshot.ExtraFiles, token);
+        };
     }
 
     private static List<string> CaptureFolders()
@@ -171,7 +191,18 @@ internal sealed class ResourceRuntime
             };
             controller.PublishSignals(signals);
             if (!endOfUpdate) return;
-            if (loaded && !queuedLongEvent && settings.RecordLoadTiming) LoadTiming.CompleteOnce();
+            if (loaded && !queuedLongEvent && Volatile.Read(ref packSources) == null)
+            {
+                var roots = new List<string>();
+                foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+                    if (!string.IsNullOrEmpty(pack.RootDir)) roots.Add(Path.GetFullPath(pack.RootDir));
+                List<string> folders = CaptureFolders();
+                var extra = new[] { Path.Combine(AppContext.BaseDirectory, EnginePackFiles.AssetPackFileName) };
+                var snapshot = new PackSourceSnapshot(WaylithRuntime.Current?.App.CacheDataPath, roots, folders, extra);
+                Volatile.Write(ref packSources, snapshot);
+                controller.SetAssetFolders(folders);
+            }
+            if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch) LoadTiming.CompleteOnce();
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
             controller.ReportFrame(frameIntervalMs);
