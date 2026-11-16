@@ -388,6 +388,60 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Periodic_maintenance_waits_until_resource_activation_resumes()
+        {
+            string path = MakeFile("paused-asset.xml", 30_000);
+            long now = 0;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, false, 0);
+            Interlocked.Exchange(ref now, 65_000);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(false, false, 0, refreshIntervalMs: 60_000);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, false, 0, refreshIntervalMs: 60_000);
+                Thread.Sleep(5);
+                return cache.PeriodicRefreshes == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, cache.FilesRead);
+        }
+
+        [Fact]
+        public void Memory_release_cooldown_takes_priority_over_periodic_refresh()
+        {
+            string path = MakeFile("released.bin", 150_000);
+            long now = 0;
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, clockMs: () => Interlocked.Read(ref now));
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete && cache.FilesRead == 1, true, 1_000_000);
+            store.ReleaseAll();
+            Interlocked.Exchange(ref now, 10_000);
+            for (int i = 0; i < 10; i++)
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 1000);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(0, store.CommittedBytes);
+            Assert.Equal(0, cache.PeriodicRefreshes);
+
+            Interlocked.Exchange(ref now, 31_000);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                cache.Pump(true, true, 1_000_000, refreshIntervalMs: 1000);
+                Thread.Sleep(5);
+                return cache.FilesRead >= 2 && store.CommittedBytes == 150_000;
+            }, TimeSpan.FromSeconds(10)));
+        }
+
+        [Fact]
         public void Released_files_are_read_again_only_after_cooldown()
         {
             string a = MakeFile("a.bin", 200_000);
