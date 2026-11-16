@@ -94,6 +94,9 @@ namespace MoreUseResources.Core
             int width = 0, height = 0;
             bool sawHeader = false, sawImageData = false;
             byte[] buffer = ArrayPool<byte>.Shared.Rent(IoBufferSize);
+            Span<byte> chunk = stackalloc byte[8];
+            Span<byte> ihdr = stackalloc byte[13];
+            Span<byte> stored = stackalloc byte[4];
             try
             {
                 for (int chunkCount = 0; chunkCount < MaxPngChunks; chunkCount++)
@@ -101,7 +104,6 @@ namespace MoreUseResources.Core
                     token.ThrowIfCancellationRequested();
                     if (stream.Length - stream.Position < 12)
                         return new TextureAssetReport(kind, TextureAssetState.Malformed);
-                    Span<byte> chunk = stackalloc byte[8];
                     stream.ReadExactly(chunk);
                     uint length = BinaryPrimitives.ReadUInt32BigEndian(chunk.Slice(0, 4));
                     // Ignore arbitrary chunk metadata, but never let an untrusted length
@@ -119,7 +121,6 @@ namespace MoreUseResources.Core
                     uint crc = 0xffffffff;
                     crc = UpdateCrc(crc, chunk.Slice(4, 4));
                     uint remaining = length;
-                    Span<byte> ihdr = stackalloc byte[13];
                     bool firstRead = true;
                     while (remaining > 0)
                     {
@@ -134,7 +135,6 @@ namespace MoreUseResources.Core
                         crc = UpdateCrc(crc, buffer.AsSpan(0, n));
                         remaining -= (uint)n;
                     }
-                    Span<byte> stored = stackalloc byte[4];
                     stream.ReadExactly(stored);
                     if (BinaryPrimitives.ReadUInt32BigEndian(stored) != ~crc)
                         return new TextureAssetReport(kind, TextureAssetState.Malformed);
