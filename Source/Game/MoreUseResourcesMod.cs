@@ -70,6 +70,8 @@ public sealed class MoreUseResourcesMod : Mod
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
+        list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
+            InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         if (status.Memory.FromOperatingSystem)
             list.Label("MUR_MemoryStatus".Translate(InMiB(status.ProcessWorkingSet), InMiB(status.Memory.AvailablePhysical),
                 ("MUR_Memory" + status.MemoryState).Translate().ToString()));
@@ -177,6 +179,7 @@ public sealed class MoreUseResourcesMod : Mod
     {
         list.GapLine();
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
+        Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
         Toggle(list, "MUR_Synthetic", ref s.CpuSyntheticLoad);
         Slider(list, "MUR_Duty", ref s.CpuSyntheticDutyPercent, 5, 100, 5);
