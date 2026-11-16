@@ -11,6 +11,7 @@
   <MUR_MemoryStatus>ゲームのワーキングセット {0} MiB ／ OS使用可能 {1} MiB ／ メモリ制御 {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>OSのメモリ情報を確認できるまで、RAMの追加確保と先読みを停止します。</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} ／ 先読み済みテクスチャ {1}</MUR_GpuStatus>
+  <MUR_GpuQueueStatus>GPU先読み保留 {0} 件 ／ 保留上限で除外 {1} 件 ／ 恒久的に対象外 {2} 件 ／ アップロード失敗 {3} 件</MUR_GpuQueueStatus>
   <MUR_GpuBudgetStatus>GPUの最終計測値 使用 {0} MiB ／ ドライバー予算 {1} MiB</MUR_GpuBudgetStatus>
   <MUR_Auto>自動</MUR_Auto>
   <MUR_ForceRun>今すぐ実行</MUR_ForceRun>
