@@ -534,6 +534,68 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Background_discovery_rechecks_live_mod_folders_and_preserves_unchanged_sources()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "mur-scan-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(root, "Defs"));
+            try
+            {
+                string first = Path.Combine(root, "Defs", "first.xml");
+                string second = Path.Combine(root, "Defs", "second.xml");
+                File.WriteAllText(first, "<Defs />");
+                long now = 1000;
+                var settings = new ResourceSettings
+                {
+                    RamFileCache = false, CpuIndexAssets = true, AssetDiscoveryRescanMinutes = 1
+                };
+                using var controller = new ResourceController(new FakeProbe(), 2,
+                    initial: settings, assetFolders: new[] { root },
+                    assetClockMs: () => Interlocked.Read(ref now));
+                controller.PublishSignals(new RawGameSignals { PlayDataLoaded = true,
+                    Stage = ProgramStage.Entry, Focused = true });
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileSources == 1 && status.FileDiscoveryPasses == 1;
+                }, TimeSpan.FromSeconds(10)));
+
+                Interlocked.Exchange(ref now, 61_100);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    return controller.GetStatus().FileDiscoveryPasses == 2;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(1, controller.GetStatus().FileSourceChanges);
+                Assert.Equal(1, controller.GetStatus().FileSources);
+
+                File.WriteAllText(second, "<Defs><ThingDef><defName>NewAsset</defName></ThingDef></Defs>");
+                Interlocked.Exchange(ref now, 121_200);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileDiscoveryPasses == 3 && status.FileSources == 2;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(2, controller.GetStatus().FileSourceChanges);
+                File.Delete(first);
+                Interlocked.Exchange(ref now, 181_300);
+                Assert.True(SpinWait.SpinUntil(() =>
+                {
+                    controller.ControlTick(true, .25);
+                    Thread.Sleep(5);
+                    ControllerStatus status = controller.GetStatus();
+                    return status.FileDiscoveryPasses == 4 && status.FileSources == 1;
+                }, TimeSpan.FromSeconds(10)));
+                Assert.Equal(3, controller.GetStatus().FileSourceChanges);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
         public void Service_worker_reads_files_when_cpu_feature_is_off()
         {
             var settings = new ResourceSettings { CpuEnabled = false };
