@@ -136,6 +136,31 @@ namespace MoreUseResources.Core
             return total;
         }
 
+        /// <summary>
+        /// Releases only committed blocks owned by one real file path. Pending writes
+        /// cannot be freed while worker threads are filling them.
+        /// </summary>
+        public long ReleaseKey(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return 0;
+            var freed = new List<Block>();
+            long bytes = 0;
+            lock (_gate)
+            {
+                for (int i = _blocks.Count - 1; i >= 0; i--)
+                {
+                    Block block = _blocks[i];
+                    if (!StringComparer.Ordinal.Equals(key, block.Key)) continue;
+                    _blocks.RemoveAt(i);
+                    _committed -= block.Size;
+                    bytes += block.Size;
+                    freed.Add(block);
+                }
+            }
+            if (freed.Count > 0) FreeBlocks(freed);
+            return bytes;
+        }
+
         public long ReleaseAll() => Release(long.MaxValue);
 
         private void FreeBlocks(List<Block> freed)
