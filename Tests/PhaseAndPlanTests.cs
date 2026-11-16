@@ -175,6 +175,18 @@ namespace MoreUseResources.Tests
             Assert.All(s.PhaseIntensity, v => Assert.InRange(v, 5, 100));
         }
 
+        [Theory]
+        [InlineData(-1, 1024)]
+        [InlineData(1024, 1024)]
+        [InlineData(3072, 3072)]
+        [InlineData(99999, 4096)]
+        public void Gpu_texture_edge_limit_is_safely_clamped(int raw, int expected)
+        {
+            var settings = new ResourceSettings { GpuMaxTextureDimension = raw };
+            settings.Clamp();
+            Assert.Equal(expected, settings.GpuMaxTextureDimension);
+        }
+
         [Fact]
         public void Clone_is_deep()
         {
