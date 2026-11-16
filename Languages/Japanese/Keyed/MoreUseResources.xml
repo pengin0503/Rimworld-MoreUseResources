@@ -7,6 +7,7 @@
   <MUR_CpuStatus>CPU {0} ／ ワーカー枠 {1} ／ 待機ジョブ {2}</MUR_CpuStatus>
   <MUR_RamStatus>RAM {0} ／ ファイルコピー {1} MiB ／ 予約 {2} MiB</MUR_RamStatus>
   <MUR_PrefetchStatus>先読み {0}/{1} ／ 完了 {2} ファイル（{3} MiB） ／ エラー {4} ／ 予算超過 {5}</MUR_PrefetchStatus>
+  <MUR_AuditStatus>アセット検査 {0}/{1} ／ 完全一致の重複 {2} 件（{3} MiB） ／ 計算済み {4} MiB ／ エラー {5} ／ 対象外 {6}</MUR_AuditStatus>
   <MUR_MemoryStatus>ゲームのワーキングセット {0} MiB ／ OS使用可能 {1} MiB ／ メモリ制御 {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>OSのメモリ情報を確認できるまで、RAMの追加確保と先読みを停止します。</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} ／ 先読み済みテクスチャ {1}</MUR_GpuStatus>
@@ -38,6 +39,7 @@
   <MUR_PhaseSaving>セーブ・オートセーブ</MUR_PhaseSaving>
   <MUR_PhaseQuitting>終了処理</MUR_PhaseQuitting>
   <MUR_CpuEnabled>CPUワーカーを使用</MUR_CpuEnabled>
+  <MUR_CpuIndexAssets>CPUで有効MODのアセットをSHA-256検査し、重複ファイルを索引化</MUR_CpuIndexAssets>
   <MUR_Workers>最大CPUワーカー数 {0}（0は自動）</MUR_Workers>
   <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
   <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
