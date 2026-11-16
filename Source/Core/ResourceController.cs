@@ -38,6 +38,14 @@ namespace MoreUseResources.Core
         public long FileErrors;
         public int FilesDeferredForBudget;
         public bool FilePassComplete;
+        public int AuditSources;
+        public int AuditCompleted;
+        public int AuditDuplicates;
+        public long AuditDuplicateBytes;
+        public long AuditHashedBytes;
+        public int AuditErrors;
+        public int AuditSkipped;
+        public bool AuditComplete;
         public string? FileLastError;
         public bool GcLowLatencyApplied;
         public string? GcError;
@@ -68,6 +76,7 @@ namespace MoreUseResources.Core
         private readonly NativeBlockStore _reserveStore = new NativeBlockStore();
         private readonly MemoryGovernor _governor;
         private readonly FileCache _fileCache;
+        private readonly AssetAudit _assetAudit;
         private readonly GcTuner _gc = new GcTuner();
         private readonly ProcessPriorityTuner _priority = new ProcessPriorityTuner();
         private readonly FrameGuard _frameGuard = new FrameGuard();
@@ -102,6 +111,7 @@ namespace MoreUseResources.Core
             _pool = new WorkerPool(_logicalProcessors, mayBurn: CpuLoadAllowed);
             _governor = new MemoryGovernor(probe, _cacheStore, _reserveStore);
             _fileCache = new FileCache(_cacheStore, _pool, mayRead: FileReadAllowed, mayCopy: RamCopyAllowed);
+            _assetAudit = new AssetAudit(_pool, mayRun: AuditReadAllowed);
             _signals = new RawGameSignals { Focused = true };
             _plan = ActivationPlanner.Plan(_settings, new PhaseSnapshot(GamePhase.Startup, PhaseModifiers.None), ManualMode.Auto);
         }
@@ -167,7 +177,12 @@ namespace MoreUseResources.Core
         public bool FrameThrottled => _throttled;
         public double FrameAverageMs => _frameGuard.AverageMs;
 
-        public void SetFileSources(IEnumerable<string> files) => _fileCache.SetSources(files);
+        public void SetFileSources(IEnumerable<string> files)
+        {
+            var list = new List<string>(files);
+            _fileCache.SetSources(list);
+            _assetAudit.SetSources(list);
+        }
 
         /// <summary>User action: give back all held memory now. Growth resumes by the normal rules.</summary>
         public void RequestReleaseMemory() => Interlocked.Exchange(ref _releaseRequested, 1);
@@ -197,15 +212,15 @@ namespace MoreUseResources.Core
             if (throttled) workers = synthetic ? Math.Max(1, workers / 2) : Math.Min(1, workers);
             bool holdCopies = s.RamEnabled && s.RamHoldCopies;
             bool fileWork = s.RamFileCache && (plan.Ram.Active || plan.Cpu.Active);
-            if (!fileWork)
-            {
-                _assetScanAllowed = false;
-                _fileCache.Suspend();
-            }
-            if (!fileWork && !synthetic) workers = 0;
-            if (fileWork && workers == 0) workers = 1; // one service worker so the RAM feature works without the CPU feature
+            bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled;
+            bool anyFileWork = fileWork || auditWork;
+            if (!anyFileWork) _assetScanAllowed = false;
+            if (!fileWork) _fileCache.Suspend();
+            if (!auditWork) _assetAudit.Suspend();
+            if (!anyFileWork && !synthetic) workers = 0;
+            if (anyFileWork && workers == 0) workers = 1; // RAM-only prefetch still needs a service worker
             ThreadPriority priority = s.CpuWorkerPriority == WorkerPriority.BelowNormal ? ThreadPriority.BelowNormal : ThreadPriority.Lowest;
-            _pool.Configure(workers, fileWork, synthetic, s.CpuSyntheticDutyPercent, priority);
+            _pool.Configure(workers, anyFileWork, synthetic, s.CpuSyntheticDutyPercent, priority);
 
             if (!slow) return;
 
@@ -222,9 +237,12 @@ namespace MoreUseResources.Core
             MemoryStatus memory = _governor.LastStatus;
             bool mayRead = !releasing && fileWork && FileReadAllowed() && memory.FromOperatingSystem
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
-            _assetScanAllowed = mayRead;
-            if (mayRead) QueueAssetScan();
+            bool mayAudit = !releasing && auditWork && AuditReadAllowed() && memory.FromOperatingSystem
+                && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            _assetScanAllowed = mayRead || mayAudit;
+            if (_assetScanAllowed) QueueAssetScan();
             _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes, allowCopies: plan.Ram.Active);
+            _assetAudit.Pump(mayAudit, Math.Max(1, workers));
             _gc.Apply(plan.Ram.Active && mayRead && s.RamGcLowLatency);
             _priority.Apply(plan.Cpu.Active ? s.ProcessPriority : ProcessPriorityChoice.Unchanged);
 
@@ -259,6 +277,13 @@ namespace MoreUseResources.Core
                 || (s.CpuEnabled && s.CpuPhases[phase]);
         }
 
+        private bool AuditReadAllowed()
+        {
+            ResourceSettings s = _settings;
+            return !_stopping && s.Enabled && s.CpuEnabled && s.CpuIndexAssets && Manual != ManualMode.Paused
+                && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
+        }
+
         private bool RamCopyAllowed()
         {
             ResourceSettings s = _settings;
@@ -280,10 +305,11 @@ namespace MoreUseResources.Core
             {
                 try
                 {
-                    List<string> files = GameAssetFiles.Discover(_assetFolders, token, () => _assetScanAllowed && FileReadAllowed());
-                    if (!token.IsCancellationRequested && _assetScanAllowed && FileReadAllowed())
+                    List<string> files = GameAssetFiles.Discover(_assetFolders, token,
+                        () => _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()));
+                    if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
                     {
-                        _fileCache.SetSources(files);
+                        SetFileSources(files);
                         Volatile.Write(ref _assetScan, 2);
                     }
                 }
@@ -319,6 +345,7 @@ namespace MoreUseResources.Core
                     _controlError = ex.GetType().Name + ": " + ex.Message;
                     _assetScanAllowed = false;
                     _fileCache.Suspend();
+                    _assetAudit.Suspend();
                     try { _pool.Configure(0, false, false, 1, ThreadPriority.Lowest); } catch (Exception) { }
                 }
                 Thread.Sleep(TickMs);
@@ -327,6 +354,7 @@ namespace MoreUseResources.Core
 
         public ControllerStatus GetStatus()
         {
+            AssetAuditSnapshot audit = _assetAudit.Snapshot;
             long now = Environment.TickCount64;
             if (now - _lastPrivateStamp > 1000)
             {
@@ -370,6 +398,14 @@ namespace MoreUseResources.Core
                 FileErrors = _fileCache.Errors,
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
                 FilePassComplete = _fileCache.PassComplete,
+                AuditSources = audit.Sources,
+                AuditCompleted = audit.Completed,
+                AuditDuplicates = audit.Duplicates,
+                AuditDuplicateBytes = audit.DuplicateBytes,
+                AuditHashedBytes = audit.HashedBytes,
+                AuditErrors = audit.Errors,
+                AuditSkipped = audit.Skipped,
+                AuditComplete = audit.Complete,
                 FileLastError = _fileCache.LastError,
                 GcLowLatencyApplied = _gc.Applied,
                 GcError = _gc.LastError,
@@ -391,6 +427,7 @@ namespace MoreUseResources.Core
                 _stopping = true;
                 _assetScanAllowed = false;
                 _fileCache.Suspend();
+                _assetAudit.Suspend();
                 thread = _thread;
             }
             try { _shutdownCts.Cancel(); } catch (Exception) { }
