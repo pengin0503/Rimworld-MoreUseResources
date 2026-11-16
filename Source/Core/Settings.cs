@@ -82,6 +82,8 @@ namespace MoreUseResources.Core
         // ---- RAM ----
         public bool RamEnabled = true;
         public bool RamFileCache = true;
+        /// <summary>Minutes between OS cache rewarming passes of real mod/game assets; zero disables.</summary>
+        public int RamPrefetchRefreshMinutes = 5;
         /// <summary>true: keep the bytes in this process. false: read once to warm the OS file cache and drop them.</summary>
         public bool RamHoldCopies = true;
         public int RamFileCacheMiB = 4096;
@@ -191,6 +193,7 @@ namespace MoreUseResources.Core
             CpuSyntheticDutyPercent = Math.Clamp(CpuSyntheticDutyPercent, 5, 100);
             CpuAuditRescanMinutes = Math.Clamp(CpuAuditRescanMinutes, 0, 120);
             RamFileCacheMiB = Math.Clamp(RamFileCacheMiB, 64, 262144);
+            RamPrefetchRefreshMinutes = Math.Clamp(RamPrefetchRefreshMinutes, 0, 120);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
             RamReserveMiB = Math.Clamp(RamReserveMiB, 64, 262144);
             GpuTargetPercent = Math.Clamp(GpuTargetPercent, 10, MaxGpuTargetPercent);
