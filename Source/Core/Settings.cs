@@ -76,6 +76,8 @@ namespace MoreUseResources.Core
         public bool CpuIndexAssets = true;
         /// <summary>Minutes between full read-only content integrity passes; 0 disables rescans.</summary>
         public int CpuAuditRescanMinutes = 10;
+        /// <summary>Periodically re-enumerate mod asset folders for added/deleted files; 0 = startup only.</summary>
+        public int AssetDiscoveryRescanMinutes = 10;
         public int CpuSyntheticDutyPercent = 50;
         public ProcessPriorityChoice ProcessPriority = ProcessPriorityChoice.Unchanged;
 
@@ -192,6 +194,7 @@ namespace MoreUseResources.Core
             CpuMaxWorkers = Math.Clamp(CpuMaxWorkers, 0, 256);
             CpuSyntheticDutyPercent = Math.Clamp(CpuSyntheticDutyPercent, 5, 100);
             CpuAuditRescanMinutes = Math.Clamp(CpuAuditRescanMinutes, 0, 120);
+            AssetDiscoveryRescanMinutes = Math.Clamp(AssetDiscoveryRescanMinutes, 0, 120);
             RamFileCacheMiB = Math.Clamp(RamFileCacheMiB, 64, 262144);
             RamPrefetchRefreshMinutes = Math.Clamp(RamPrefetchRefreshMinutes, 0, 120);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
