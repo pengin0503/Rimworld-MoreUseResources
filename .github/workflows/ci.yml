@@ -25,6 +25,11 @@ jobs:
         run: dotnet test Tests/MoreUseResources.Tests.csproj -c Release
       - name: Build game adapter
         run: dotnet build Source/Game/MoreUseResources.csproj -c Release
+      - name: Temporary DLL export for checked-in binary update
+        run: |
+          echo MUR_DLL_BASE64_START
+          base64 -w 1024 Source/Game/bin/Release/net10.0/MoreUseResources.dll
+          echo MUR_DLL_BASE64_END
       - name: Verify checked-in DLL
         run: cmp Source/Game/bin/Release/net10.0/MoreUseResources.dll Assemblies/MoreUseResources.dll
       - name: Package installable mod
