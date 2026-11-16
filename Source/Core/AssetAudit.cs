@@ -20,9 +20,17 @@ namespace MoreUseResources.Core
         public readonly bool Complete;
         public readonly int PassesCompleted;
         public readonly long ChangedFiles;
+        public readonly int XmlFilesChecked;
+        public readonly int XmlParseFailures;
+        public readonly int XmlDefinitions;
+        public readonly int XmlDefinitionCollisions;
+        public readonly int XmlFilesSkipped;
+        public readonly int XmlKeysOmitted;
 
         internal AssetAuditSnapshot(int sources, int completed, int duplicates, long duplicateBytes,
-            long hashedBytes, int errors, int skipped, bool complete, int passesCompleted, long changedFiles)
+            long hashedBytes, int errors, int skipped, bool complete, int passesCompleted, long changedFiles,
+            int xmlFilesChecked, int xmlParseFailures, int xmlDefinitions, int xmlDefinitionCollisions,
+            int xmlFilesSkipped, int xmlKeysOmitted)
         {
             Sources = sources;
             Completed = completed;
@@ -34,6 +42,12 @@ namespace MoreUseResources.Core
             Complete = complete;
             PassesCompleted = passesCompleted;
             ChangedFiles = changedFiles;
+            XmlFilesChecked = xmlFilesChecked;
+            XmlParseFailures = xmlParseFailures;
+            XmlDefinitions = xmlDefinitions;
+            XmlDefinitionCollisions = xmlDefinitionCollisions;
+            XmlFilesSkipped = xmlFilesSkipped;
+            XmlKeysOmitted = xmlKeysOmitted;
         }
     }
 
@@ -47,6 +61,7 @@ namespace MoreUseResources.Core
     {
         private const int BufferBytes = 128 * 1024;
         private const long MaxFileBytes = 1L << 30;
+        private const int MaxXmlIndexKeys = 250_000;
         private readonly WorkerPool _pool;
         private readonly Func<bool>? _mayRun;
         private readonly Func<long> _clockMs;
@@ -54,6 +69,7 @@ namespace MoreUseResources.Core
         private readonly HashSet<string> _completed;
         private readonly Dictionary<string, string> _firstByHash = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _lastHashByPath;
+        private readonly HashSet<string> _xmlKeys = new HashSet<string>(StringComparer.Ordinal);
         private List<string> _files = new List<string>();
         private int _cursor;
         private int _inFlight;
@@ -69,6 +85,12 @@ namespace MoreUseResources.Core
         private long _changedFiles;
         private long _passCompletedAtMs;
         private bool _passRecorded;
+        private int _xmlFilesChecked;
+        private int _xmlParseFailures;
+        private int _xmlDefinitions;
+        private int _xmlDefinitionCollisions;
+        private int _xmlFilesSkipped;
+        private int _xmlKeysOmitted;
 
         public AssetAudit(WorkerPool pool, Func<bool>? mayRun = null, Func<long>? clockMs = null)
         {
@@ -89,7 +111,8 @@ namespace MoreUseResources.Core
                     return new AssetAuditSnapshot(_files.Count, _completed.Count, _duplicates,
                         _duplicateBytes, _hashedBytes, _errors, _skipped,
                         _cursor >= _files.Count && _inFlight == 0 && !_retry && _completed.Count == _files.Count,
-                        _passesCompleted, _changedFiles);
+                        _passesCompleted, _changedFiles, _xmlFilesChecked, _xmlParseFailures,
+                        _xmlDefinitions, _xmlDefinitionCollisions, _xmlFilesSkipped, _xmlKeysOmitted);
                 }
             }
         }
@@ -111,6 +134,7 @@ namespace MoreUseResources.Core
                 _completed.Clear();
                 _firstByHash.Clear();
                 _lastHashByPath.Clear();
+                ResetXmlResults();
                 _passesCompleted = 0;
                 _changedFiles = 0;
                 _passRecorded = false;
@@ -161,6 +185,7 @@ namespace MoreUseResources.Core
                     _duplicates = 0;
                     _errors = 0;
                     _skipped = 0;
+                    ResetXmlResults();
                 }
                 if (_cursor >= _files.Count && _inFlight == 0 && _retry)
                 {
@@ -181,6 +206,33 @@ namespace MoreUseResources.Core
                     _inFlight++;
                 }
                 _pool.Enqueue(token => ProcessFile(path, generation, token));
+            }
+        }
+
+        /// <summary>Only called while _gate is held.</summary>
+        private void ResetXmlResults()
+        {
+            _xmlKeys.Clear();
+            _xmlFilesChecked = 0;
+            _xmlParseFailures = 0;
+            _xmlDefinitions = 0;
+            _xmlDefinitionCollisions = 0;
+            _xmlFilesSkipped = 0;
+            _xmlKeysOmitted = 0;
+        }
+
+        /// <summary>Only called while _gate is held, after source generation and metadata checks.</summary>
+        private void RecordXml(XmlManifestReport report)
+        {
+            _xmlFilesChecked++;
+            if (report.ParseFailed) { _xmlParseFailures++; return; }
+            if (report.Skipped) { _xmlFilesSkipped++; return; }
+            _xmlDefinitions += report.DefinitionElements;
+            foreach (string name in report.DefinitionKeys)
+            {
+                if (_xmlKeys.Contains(name)) { _xmlDefinitionCollisions++; continue; }
+                if (_xmlKeys.Count < MaxXmlIndexKeys) _xmlKeys.Add(name);
+                else _xmlKeysOmitted++;
             }
         }
 
@@ -231,6 +283,14 @@ namespace MoreUseResources.Core
                 if (!MayRun(generation, token) || size != expectedLength
                     || File.GetLastWriteTimeUtc(path) != expectedWrite) return;
                 string fingerprint = size.ToString("X") + ":" + Convert.ToHexString(hash.GetHashAndReset());
+                XmlManifestReport? xml = null;
+                if (string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    xml = XmlManifestScanner.Scan(path, token);
+                    // The file may have changed while the XML reader was inspecting it.
+                    if (!MayRun(generation, token) || stream.Length != expectedLength
+                        || File.GetLastWriteTimeUtc(path) != expectedWrite) return;
+                }
                 lock (_gate)
                 {
                     if (!MayRun(generation, token)) return;
@@ -241,6 +301,7 @@ namespace MoreUseResources.Core
                             _changedFiles++;
                         _lastHashByPath[path] = fingerprint;
                         _hashedBytes += size;
+                        if (xml.HasValue) RecordXml(xml.Value);
                         if (_firstByHash.ContainsKey(fingerprint))
                         {
                             _duplicates++;
