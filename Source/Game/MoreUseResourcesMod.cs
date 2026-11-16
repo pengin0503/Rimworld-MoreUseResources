@@ -217,6 +217,7 @@ public sealed class MoreUseResourcesMod : Mod
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);
             Slider(list, "MUR_GpuFrameBudget", ref s.GpuFrameBudgetTenthMs, 2, 80, 1);
             Slider(list, "MUR_GpuRefreshInterval", ref s.GpuRefreshSeconds, 0, 600, 10);
+            Slider(list, "MUR_GpuMaxTextureDimension", ref s.GpuMaxTextureDimension, 1024, 4096, 1024);
         }
         else list.Label("MUR_GpuUnsupported".Translate());
         list.Label("MUR_GpuHint".Translate());
