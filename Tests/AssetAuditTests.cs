@@ -186,6 +186,49 @@ namespace MoreUseResources.Tests
             Assert.Equal(1, audit.Snapshot.XmlDefinitionCollisions);
         }
 
+        [Fact]
+        public void Xml_index_is_rebuilt_from_current_files_on_each_periodic_pass()
+        {
+            using var directory = new TemporaryDirectory();
+            string first = directory.Write("Defs/a.xml", "<Defs><ThingDef><defName>Chair</defName></ThingDef></Defs>");
+            string second = directory.Write("Defs/b.xml", "<Defs><ThingDef><defName>Chair</defName></ThingDef></Defs>");
+            long now = 1000;
+            using var pool = new WorkerPool(2);
+            pool.Configure(2, true, false, 1, ThreadPriority.Lowest);
+            var audit = new AssetAudit(pool, clockMs: () => Interlocked.Read(ref now));
+            audit.SetSources(new[] { first, second });
+
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 2, 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 1;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(1, audit.Snapshot.XmlDefinitionCollisions);
+
+            directory.Write("Defs/b.xml", "<Defs><ThingDef><defName>Bench</defName></ThingDef></Defs>");
+            Interlocked.Exchange(ref now, 2100);
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                audit.Pump(true, 2, 1000);
+                Thread.Sleep(5);
+                return audit.Snapshot.PassesCompleted == 2;
+            }, TimeSpan.FromSeconds(10)));
+            Assert.Equal(2, audit.Snapshot.XmlDefinitions);
+            Assert.Equal(0, audit.Snapshot.XmlDefinitionCollisions);
+            Assert.Equal(1, audit.Snapshot.ChangedFiles);
+        }
+
+        [Fact]
+        public void Xml_scanner_does_not_ignore_cancellation()
+        {
+            using var directory = new TemporaryDirectory();
+            string path = directory.Write("Defs/a.xml", "<Defs><ThingDef><defName>Chair</defName></ThingDef></Defs>");
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => XmlManifestScanner.Scan(path, cts.Token));
+        }
+
         private sealed class TemporaryDirectory : IDisposable
         {
             public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mur-audit-" + Guid.NewGuid().ToString("N"));
