@@ -44,6 +44,7 @@
   <MUR_PhaseQuitting>終了処理</MUR_PhaseQuitting>
   <MUR_CpuEnabled>CPUワーカーを使用</MUR_CpuEnabled>
   <MUR_CpuIndexAssets>CPUで有効MODのアセットをSHA-256検査し、重複ファイルを索引化</MUR_CpuIndexAssets>
+  <MUR_FileDiscoveryInterval>MODの新規・削除ファイルを再探索する間隔 {0} 分（0で再探索OFF）</MUR_FileDiscoveryInterval>
   <MUR_CpuAuditInterval>アセット再検査間隔 {0} 分（0で無効）</MUR_CpuAuditInterval>
   <MUR_AuditRescanStatus>アセット検査の完了回数 {0} ／ 内容変更を検出したファイル {1} 件</MUR_AuditRescanStatus>
   <MUR_XmlAuditStatus>XML解析 {0} ファイル ／ Def {1} 個 ／ Def名の重複候補 {2} 件 ／ XML解析失敗 {3} ／ 容量超過で対象外 {4} ／ 索引上限で省略 {5}</MUR_XmlAuditStatus>
@@ -54,6 +55,7 @@
   <MUR_PrefetchEnabled>有効なMODのアセットをOSのファイルキャッシュへ先読み</MUR_PrefetchEnabled>
   <MUR_PrefetchRefreshInterval>OSキャッシュへの再先読み間隔 {0} 分（0で停止）</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
+  <MUR_FileDiscoveryStatus>MODアセット一覧の探索完了 {0} 回 ／ 一覧更新 {1} 回</MUR_FileDiscoveryStatus>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
