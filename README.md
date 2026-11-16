@@ -53,3 +53,5 @@ python3 tools/package_mod.py dist/Rimworld-MoreUseResources.zip
 Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithのテクスチャ再アップロードとVRAM予算取得の実装を静的に確認しました。実ゲームでのMOD起動・設定画面の操作、セーブ／オートセーブ／再ロード、GPU実機での使用量とフレーム時間は別途確認が必要です。
 
 [当初の設計資料](docs/plans/2026-11-16-resource-usage-and-activation-ja.md)
+
+[ハードウェア使用量を上げる今後の提案](docs/plans/2026-11-16-hardware-usage-proposals-ja.md)
