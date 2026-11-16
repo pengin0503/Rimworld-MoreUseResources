@@ -66,6 +66,11 @@ public sealed class MoreUseResourcesMod : Mod
 
         list.Label("MUR_CurrentPhase".Translate(PhaseName(status.Plan.Phase.Phase), ModeName(runtime.Manual)));
         list.Label("MUR_CpuStatus".Translate(Reason(status.Plan.Cpu), status.WorkersActive, status.PendingJobs));
+        list.Label("MUR_CpuWorkerUsage".Translate((status.WorkerCpuShare * 100).ToString("F1"), status.JobsCompleted, status.JobsFailed));
+        PerformanceSnapshot perf = runtime.Performance;
+        list.Label("MUR_PerformanceStatus".Translate(perf.FramesPerSecond.ToString("F1"),
+            perf.TicksPerSecond.ToString("F1"), perf.AverageFrameIntervalMs.ToString("F1"),
+            perf.WorstFrameIntervalMs.ToString("F1")));
         list.Label("MUR_RamStatus".Translate(Reason(status.Plan.Ram),
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
