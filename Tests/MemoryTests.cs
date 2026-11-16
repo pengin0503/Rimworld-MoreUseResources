@@ -362,7 +362,9 @@ namespace MoreUseResources.Tests
                 return cache.PeriodicRefreshes == 1;
             }, TimeSpan.FromSeconds(10)));
             Assert.Equal(2, cache.FilesRead);
-            Assert.Equal(250_000, store.CommittedBytes);
+            // This fixture deliberately changed the real bytes. A stale private copy
+            // is now released, not kept indefinitely; its replacement is cooldown-gated.
+            Assert.Equal(0, store.CommittedBytes);
             Assert.Equal(550_000, cache.BytesRead);
             Assert.True(cache.PassComplete);
         }
