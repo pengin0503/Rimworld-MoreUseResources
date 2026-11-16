@@ -40,6 +40,8 @@
   <MUR_PhaseQuitting>Quitting</MUR_PhaseQuitting>
   <MUR_CpuEnabled>Allow CPU workers</MUR_CpuEnabled>
   <MUR_CpuIndexAssets>SHA-256 audit enabled mod assets and index exact duplicates on CPU workers</MUR_CpuIndexAssets>
+  <MUR_CpuAuditInterval>Asset re-audit interval {0} minutes (0 disables)</MUR_CpuAuditInterval>
+  <MUR_AuditRescanStatus>Audit passes completed {0} · Content changes detected {1}</MUR_AuditRescanStatus>
   <MUR_Workers>Maximum CPU workers {0} (0 = automatic)</MUR_Workers>
   <MUR_Synthetic>Generate extra CPU load (experimental, can slow the game)</MUR_Synthetic>
   <MUR_Duty>Synthetic CPU duty cycle {0}%</MUR_Duty>
