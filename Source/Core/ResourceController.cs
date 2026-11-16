@@ -48,6 +48,12 @@ namespace MoreUseResources.Core
         public bool AuditComplete;
         public int AuditPassesCompleted;
         public long AuditChangedFiles;
+        public int XmlFilesChecked;
+        public int XmlParseFailures;
+        public int XmlDefinitions;
+        public int XmlDefinitionCollisions;
+        public int XmlFilesSkipped;
+        public int XmlKeysOmitted;
         public string? FileLastError;
         public bool GcLowLatencyApplied;
         public string? GcError;
@@ -410,6 +416,12 @@ namespace MoreUseResources.Core
                 AuditComplete = audit.Complete,
                 AuditPassesCompleted = audit.PassesCompleted,
                 AuditChangedFiles = audit.ChangedFiles,
+                XmlFilesChecked = audit.XmlFilesChecked,
+                XmlParseFailures = audit.XmlParseFailures,
+                XmlDefinitions = audit.XmlDefinitions,
+                XmlDefinitionCollisions = audit.XmlDefinitionCollisions,
+                XmlFilesSkipped = audit.XmlFilesSkipped,
+                XmlKeysOmitted = audit.XmlKeysOmitted,
                 FileLastError = _fileCache.LastError,
                 GcLowLatencyApplied = _gc.Applied,
                 GcError = _gc.LastError,
