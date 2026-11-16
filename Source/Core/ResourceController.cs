@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using System.Reflection;
 
 namespace MoreUseResources.Core
 {
@@ -128,6 +129,9 @@ namespace MoreUseResources.Core
         private volatile int _manual;
         private volatile bool _stopping;
         private int _releaseRequested;
+        private JitPrewarm? _jit;
+        private int _jitJobs;
+        private volatile bool _extraMemoryAvailable;
         private bool _disposed;
         private string? _controlError;
 
@@ -227,6 +231,13 @@ namespace MoreUseResources.Core
         }
 
         public bool FrameThrottled => _throttled;
+        public bool ExtraMemoryAvailable => _extraMemoryAvailable;
+        public JitProgress Jit => Volatile.Read(ref _jit)?.Progress ?? default;
+
+        public void SetJitSources(IEnumerable<Assembly> assemblies, IEnumerable<MethodBase> patchedMethods)
+        {
+            Volatile.Write(ref _jit, new JitPrewarm(assemblies, patchedMethods));
+        }
         public double FrameAverageMs => _frameGuard.AverageMs;
 
         /// <param name="files">Loose mod assets: prefetched and audited.</param>
@@ -308,10 +319,14 @@ namespace MoreUseResources.Core
             if (!anyFileWork) _assetScanAllowed = false;
             if (!fileWork) _fileCache.Suspend();
             if (!auditWork) _assetAudit.Suspend();
-            if (!anyFileWork && !synthetic) workers = 0;
+            var jit = Volatile.Read(ref _jit);
+            bool jitWork = jit != null && s.CpuJitPrewarm && !jit.Progress.Complete
+                && HardwareWork.MayPrepare(phase.Phase, plan.Cpu.Active, throttled, _extraMemoryAvailable);
+            if (!anyFileWork && !synthetic && !jitWork) workers = 0;
             if (anyFileWork && workers == 0) workers = 1; // RAM-only prefetch still needs a service worker
             ThreadPriority priority = s.CpuWorkerPriority == WorkerPriority.BelowNormal ? ThreadPriority.BelowNormal : ThreadPriority.Lowest;
-            _pool.Configure(workers, anyFileWork, synthetic, s.CpuSyntheticDutyPercent, priority);
+            _pool.Configure(workers, anyFileWork || jitWork, synthetic, s.CpuSyntheticDutyPercent, priority);
+            if (jitWork && jit != null) QueueJit(jit, Math.Min(workers, 2));
 
             if (!slow) return;
 
@@ -328,6 +343,7 @@ namespace MoreUseResources.Core
             MemoryStatus memory = _governor.LastStatus;
             bool memoryOk = memory.FromOperatingSystem
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            _extraMemoryAvailable = memoryOk && !releasing;
             bool residentWanted = s.Enabled && s.RamEnabled && s.RamFileCache && s.RamResidentPacks;
             // Views are given back when the feature is off, on the user's release request and under memory pressure.
             bool releaseInactive = !plan.Ram.Active && s.ReleaseWhenInactive;
@@ -356,6 +372,31 @@ namespace MoreUseResources.Core
             }
             _lastBusyTicks = busy;
             _lastShareStamp = now;
+        }
+
+        private void QueueJit(JitPrewarm jit, int concurrent)
+        {
+            int remaining = concurrent - Volatile.Read(ref _jitJobs);
+            for (int i = 0; i < remaining; i++)
+            {
+                Interlocked.Increment(ref _jitJobs);
+                _pool.Enqueue(token =>
+                {
+                    try { jit.RunSlice(MayRunJit, token); }
+                    finally { Interlocked.Decrement(ref _jitJobs); }
+                });
+            }
+        }
+
+        private bool MayRunJit()
+        {
+            ResourceSettings s = _settings;
+            if (_stopping || !s.CpuJitPrewarm || SavingInProgress() || !_extraMemoryAvailable) return false;
+            RawGameSignals signals;
+            lock (_gate) { signals = _signals; }
+            PhaseSnapshot phase = PhaseResolver.Resolve(signals, s.IdleBoost ? s.IdleSeconds : 0);
+            var cpu = ActivationPlanner.PlanOne(s, phase, Manual, ResourceKind.Cpu);
+            return HardwareWork.MayPrepare(phase.Phase, cpu.Active, _throttled && s.FrameGuardMs > 0, true);
         }
 
         private bool SavingInProgress() => _savingProbe?.Invoke() ?? false;
@@ -464,6 +505,7 @@ namespace MoreUseResources.Core
                 catch (Exception ex)
                 {
                     // Never let the control thread die; with no plan updates everything would keep its last state.
+                    _extraMemoryAvailable = false;
                     _controlError = ex.GetType().Name + ": " + ex.Message;
                     _assetScanAllowed = false;
                     _fileCache.Suspend();

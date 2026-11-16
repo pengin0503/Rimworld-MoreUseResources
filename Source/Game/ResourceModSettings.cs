@@ -14,7 +14,6 @@ internal sealed class ResourceModSettings : ModSettings
         AllowWhenUnfocused = false,
         GpuEnabled = false,
         RamFileCacheMiB = 512,
-        RamHoldCopies = false,
         RamReserveMiB = 1024,
         GpuFrameBudgetTenthMs = 10,
     };
@@ -31,16 +30,20 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.IdleSeconds, "idleSeconds", Defaults.IdleSeconds);
         Scribe_Values.Look(ref Value.FrameGuardMs, "frameGuardMs", Defaults.FrameGuardMs);
         Scribe_Values.Look(ref Value.RecordLoadTiming, "recordLoadTiming", Defaults.RecordLoadTiming);
+        Scribe_Values.Look(ref Value.CachePatchedXml, "cachePatchedXml", Defaults.CachePatchedXml);
+        Scribe_Values.Look(ref Value.UncompressedTextureCache, "uncompressedTextureCache", Defaults.UncompressedTextureCache);
 
         Scribe_Values.Look(ref Value.CpuEnabled, "cpuEnabled", Defaults.CpuEnabled);
         Scribe_Values.Look(ref Value.CpuMaxWorkers, "cpuMaxWorkers", Defaults.CpuMaxWorkers);
         Scribe_Values.Look(ref Value.CpuSyntheticLoad, "cpuSyntheticLoad", Defaults.CpuSyntheticLoad);
+        Scribe_Values.Look(ref Value.CpuJitPrewarm, "cpuJitPrewarm", Defaults.CpuJitPrewarm);
         Scribe_Values.Look(ref Value.CpuIndexAssets, "cpuIndexAssets", Defaults.CpuIndexAssets);
         Scribe_Values.Look(ref Value.CpuAuditRescanMinutes, "cpuAuditRescanMinutes", Defaults.CpuAuditRescanMinutes);
         Scribe_Values.Look(ref Value.AssetDiscoveryRescanMinutes, "assetDiscoveryRescanMinutes", Defaults.AssetDiscoveryRescanMinutes);
         Scribe_Values.Look(ref Value.CpuSyntheticDutyPercent, "cpuSyntheticDutyPercent", Defaults.CpuSyntheticDutyPercent);
 
         Scribe_Values.Look(ref Value.RamEnabled, "ramEnabled", Defaults.RamEnabled);
+        Scribe_Values.Look(ref Value.RamGcLowLatency, "ramGcLowLatency", Defaults.RamGcLowLatency);
         Scribe_Values.Look(ref Value.RamFileCache, "prefetchFiles", Defaults.RamFileCache);
         Scribe_Values.Look(ref Value.RamPrefetchRefreshMinutes, "prefetchRefreshMinutes", Defaults.RamPrefetchRefreshMinutes);
         Scribe_Values.Look(ref Value.RamHoldCopies, "holdCopies", Defaults.RamHoldCopies);
@@ -52,6 +55,9 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.RamReserveMiB, "reserveMiB", Defaults.RamReserveMiB);
 
         Scribe_Values.Look(ref Value.GpuEnabled, "gpuPrewarm", Defaults.GpuEnabled);
+        Scribe_Values.Look(ref Value.GpuResidencyBoost, "gpuResidencyBoost", Defaults.GpuResidencyBoost);
+        Scribe_Values.Look(ref Value.GpuPrepareGraphics, "gpuPrepareGraphics", Defaults.GpuPrepareGraphics);
+        Scribe_Values.Look(ref Value.GpuAnisotropicMeshes, "gpuAnisotropicMeshes", Defaults.GpuAnisotropicMeshes);
         Scribe_Values.Look(ref Value.GpuTargetPercent, "vramTargetPercent", Defaults.GpuTargetPercent);
         Scribe_Values.Look(ref Value.GpuKeepFreeMiB, "vramKeepFreeMiB", Defaults.GpuKeepFreeMiB);
         Scribe_Values.Look(ref Value.GpuFrameBudgetTenthMs, "gpuFrameBudgetTenthMs", Defaults.GpuFrameBudgetTenthMs);

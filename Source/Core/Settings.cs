@@ -60,6 +60,8 @@ namespace MoreUseResources.Core
         public bool ShowOverlay = false;
         /// <summary>Time the game's load stages after this mod starts. Read at launch; a change applies on the next start.</summary>
         public bool RecordLoadTiming = true;
+        public bool CachePatchedXml = false;
+        public bool UncompressedTextureCache = false;
 
         // ---- per phase ----
         public bool[] CpuPhases = new bool[PhaseCount];
@@ -74,6 +76,7 @@ namespace MoreUseResources.Core
         public int CpuMaxWorkers = 0;
         public WorkerPriority CpuWorkerPriority = WorkerPriority.Lowest;
         public bool CpuSyntheticLoad = false;
+        public bool CpuJitPrewarm = false;
         /// <summary>Fingerprint enabled mods' real files and report exact duplicate content.</summary>
         public bool CpuIndexAssets = true;
         /// <summary>Minutes between full read-only content integrity passes; 0 disables rescans.</summary>
@@ -102,6 +105,9 @@ namespace MoreUseResources.Core
         // ---- GPU ----
         public bool GpuEnabled = true;
         public bool GpuPrewarm = true;
+        public bool GpuResidencyBoost = false;
+        public bool GpuPrepareGraphics = false;
+        public bool GpuAnisotropicMeshes = false;
         /// <summary>Upper bound for device-local usage as percent of the driver budget. Capped at 75 to stay under the engine's own eviction watermark (about 80%).</summary>
         public int GpuTargetPercent = 60;
         public int GpuKeepFreeMiB = 2048;

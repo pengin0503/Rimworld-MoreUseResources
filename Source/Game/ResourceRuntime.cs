@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Diagnostics;
+using System.Runtime;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
@@ -20,6 +22,20 @@ internal sealed class ResourceRuntime
     private readonly TexturePrewarm gpu = new();
     private readonly PerformanceMeter performance = new();
     private readonly GcMonitor gcMonitor = new();
+    private readonly EngineExperiments experiments = new();
+    private bool jitSourcesPublished;
+    private bool gcBaselineLoaded;
+    private GamePhase benchmarkPhase;
+    private GCLatencyMode benchmarkLatency;
+    private long gcComparableSince;
+    private int benchmarkInterrupted;
+    private bool experimentsFaulted;
+    private int dataReloaded;
+    internal GcBenchmark? GcCurrent { get; private set; }
+    internal GcBenchmark? GcBaseline { get; private set; }
+    internal EngineExperiments Experiments => experiments;
+    internal JitProgress Jit => controller.Jit;
+    private static string GcBaselinePath => Path.Combine(GenFilePaths.SaveDataFolderPath, "MoreUseResources-GC.json");
     private readonly bool recordLoadTimingOnLaunch;
     private ResourceSettings settings;
     private PackSourceSnapshot? packSources;
@@ -77,7 +93,22 @@ internal sealed class ResourceRuntime
                 prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeUpdate), flags)),
                 postfix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterUpdate), flags)));
             Volatile.Write(ref instance, this);
+            try
+            {
+                harmony.Patch(AccessTools.DeclaredMethod(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods)),
+                    prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeReload), flags)));
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[More Use Resources] Could not observe definition reloads. " + ex.Message);
+            }
             if (recordLoadTimingOnLaunch) LoadTiming.Install(harmony);
+            if (settings.Enabled && settings.CachePatchedXml)
+            {
+                try { PatchedXmlCache.Install(harmony); }
+                catch (Exception ex) { Log.Warning("[More Use Resources] Could not install patched XML cache. " + ex.Message); }
+            }
+            UpdateExperiments(loaded: false, ready: false, default, default, 0);
             Application.quitting += Stop;
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             controller.Start();
@@ -100,6 +131,73 @@ internal sealed class ResourceRuntime
     {
         Manual = ManualMode.Paused;
         controller.RequestReleaseMemory();
+    }
+
+    internal void SaveGcBaseline()
+    {
+        if (GcCurrent is not { } sample) return;
+        try
+        {
+            GcBenchmark.Save(GcBaselinePath, sample);
+            GcBaseline = sample;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warning("[More Use Resources] Could not save GC baseline. " + ex.Message);
+        }
+    }
+
+    private void UpdateGc(long now, GamePhase phase)
+    {
+        GCLatencyMode latency = GCSettings.LatencyMode;
+        bool interrupted = Interlocked.Exchange(ref benchmarkInterrupted, 0) != 0;
+        if (interrupted || phase != benchmarkPhase || latency != benchmarkLatency)
+        {
+            benchmarkPhase = phase;
+            benchmarkLatency = latency;
+            gcComparableSince = now;
+            GcCurrent = null;
+        }
+        if (!gcMonitor.Sample(now, latency)) return;
+        if (phase is GamePhase.MainMenu or GamePhase.Paused or GamePhase.PlayingNormal or GamePhase.PlayingFast
+            && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
+            GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase);
+    }
+
+    private void PublishJitSources()
+    {
+        jitSourcesPublished = true;
+        try
+        {
+            var assemblies = new List<Assembly> { typeof(Root).Assembly };
+            var seen = new HashSet<Assembly>(assemblies) { typeof(ResourceRuntime).Assembly };
+            foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+                foreach (Assembly assembly in pack.assemblies.loadedAssemblies)
+                    if (!assembly.IsDynamic && seen.Add(assembly)) assemblies.Add(assembly);
+            controller.SetJitSources(assemblies, Harmony.GetAllPatchedMethods());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warning("[More Use Resources] JIT preparation could not start. " + ex.Message);
+        }
+    }
+
+    private void UpdateExperiments(bool loaded, bool ready, GamePhase phase, ResourceActivation activation, long frameStart)
+    {
+        if (experimentsFaulted) return;
+        try
+        {
+            experiments.UpdateCodec(settings.Enabled && settings.UncompressedTextureCache);
+            if (frameStart != 0)
+                experiments.Update(settings, phase, activation, ready, loaded,
+                    settings.FrameGuardMs > 0 && controller.FrameThrottled, controller.ExtraMemoryAvailable, frameStart);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            experimentsFaulted = true;
+            experiments.Restore();
+            Log.Warning("[More Use Resources] Engine experiments stopped. " + ex.Message);
+        }
     }
 
     /// <summary>
@@ -140,12 +238,20 @@ internal sealed class ResourceRuntime
     private static void BeforeSave(out ResourceRuntime? __state)
     {
         __state = Volatile.Read(ref instance);
-        if (__state != null) Interlocked.Increment(ref __state.savingDepth);
+        if (__state == null) return;
+        Interlocked.Increment(ref __state.savingDepth);
+        Interlocked.Exchange(ref __state.benchmarkInterrupted, 1);
     }
 
     private static void AfterSave(ResourceRuntime? __state)
     {
         if (__state != null) Interlocked.Decrement(ref __state.savingDepth);
+    }
+
+    private static void BeforeReload(bool hotReload)
+    {
+        if (hotReload && Volatile.Read(ref instance) is { } runtime)
+            Interlocked.Exchange(ref runtime.dataReloaded, 1);
     }
 
     private static void BeforeUpdate() => Volatile.Read(ref instance)?.Observe(endOfUpdate: false);
@@ -161,6 +267,7 @@ internal sealed class ResourceRuntime
             // initialization even though Mod is constructed by the asynchronous loader.
             bool queuedLongEvent = LongEventHandler.AnyEventNowOrWaiting;
             if (!endOfUpdate && !queuedLongEvent) return;
+            if (queuedLongEvent) Interlocked.Exchange(ref benchmarkInterrupted, 1);
             bool loaded = PlayDataLoader.Loaded;
             startupFinished |= loaded;
             bool loading = queuedLongEvent || (startupFinished && !loaded);
@@ -207,12 +314,28 @@ internal sealed class ResourceRuntime
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
             controller.ReportFrame(frameIntervalMs);
             performance.Sample(now, ticks?.TicksGame, frameIntervalMs);
-            gcMonitor.Sample(now, System.Runtime.GCSettings.LatencyMode);
             // Use the frame's live phase here, not the controller's previous 50 ms sample.
             signals.Saving = Volatile.Read(ref savingDepth) > 0;
             var phase = PhaseResolver.Resolve(signals, settings.IdleBoost ? settings.IdleSeconds : 0);
             var activation = ActivationPlanner.PlanOne(settings, phase, Manual, ResourceKind.Gpu);
-            gpu.Update(phase.Phase, activation, settings, controller.FrameThrottled, loaded && !loading);
+            bool ready = loaded && !loading;
+            if (ready && !gcBaselineLoaded)
+            {
+                gcBaselineLoaded = true;
+                GcBaseline = GcBenchmark.Load(GcBaselinePath);
+            }
+            UpdateGc(now, phase.Phase);
+            if (ready && settings.Enabled && settings.CpuEnabled && settings.CpuJitPrewarm && !jitSourcesPublished)
+                PublishJitSources();
+
+            if (ready && Interlocked.Exchange(ref dataReloaded, 0) != 0)
+            {
+                experiments.ResetGraphicsScans();
+                gpu.InvalidateScan();
+            }
+            long frameStart = Stopwatch.GetTimestamp();
+            gpu.Update(phase.Phase, activation, settings, controller.FrameThrottled, ready);
+            UpdateExperiments(loaded, ready, phase.Phase, activation, frameStart);
         }
         catch (Exception ex)
         {
@@ -220,6 +343,7 @@ internal sealed class ResourceRuntime
             controller.Manual = ManualMode.Paused;
             controller.UpdateSettings(new ResourceSettings { Enabled = false });
             controller.RequestReleaseMemory();
+            experiments.Restore();
             Log.Error("[More Use Resources] Frame observer stopped. " + ex);
         }
     }
@@ -230,6 +354,7 @@ internal sealed class ResourceRuntime
         Interlocked.CompareExchange(ref instance, null, this);
         Application.quitting -= Stop;
         AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
-        controller.Shutdown();
+        try { experiments.Restore(); }
+        finally { controller.Shutdown(); }
     }
 }

@@ -80,6 +80,27 @@ public sealed class MoreUseResourcesMod : Mod
                 InMiB(gc.HeapBytes), (gc.ServerGc ? "Server" : "Workstation") + "/" + gc.Latency));
         }
         else list.Label("MUR_GcPending".Translate());
+        if (runtime.GcCurrent is { } current)
+        {
+            if (list.ButtonText("MUR_GcSaveBaseline".Translate())) runtime.SaveGcBaseline();
+            if (runtime.GcBaseline is { } baseline && current.TryCompare(baseline, out var difference))
+                list.Label("MUR_GcComparison".Translate(PhaseName(current.Phase), baseline.ServerGc ? "Server" : "Workstation",
+                    baseline.Latency.ToString(), difference.CollectionsPerMinute.ToString("+0.0;-0.0;0.0"),
+                    difference.PauseMsPerMinute.ToString("+0.0;-0.0;0.0"),
+                    (difference.HeapBytes / (double)ResourceSettings.MiB).ToString("+0.0;-0.0;0.0"),
+                    difference.AllocatedMiBPerSecond.ToString("+0.0;-0.0;0.0"),
+                    (difference.CommittedBytes / (double)ResourceSettings.MiB).ToString("+0.0;-0.0;0.0")));
+        }
+        if (runtime.GcBaseline != null && (runtime.GcCurrent == null || runtime.GcCurrent.Phase != runtime.GcBaseline.Phase))
+            list.Label("MUR_GcComparisonPending".Translate(PhaseName(runtime.GcBaseline.Phase)));
+        if (settings.Value.CpuJitPrewarm)
+        {
+            JitProgress jit = runtime.Jit;
+            list.Label("MUR_JitStatus".Translate(jit.Prepared, jit.Failed, jit.Skipped, jit.WorkMs.ToString("F0"),
+                (jit.Complete ? "MUR_JitComplete" : "MUR_JitPending").Translate().ToString()));
+        }
+        if (settings.Value.CachePatchedXml || PatchedXmlCache.StatusKey != "MUR_PatchedXmlOff")
+            list.Label(PatchedXmlCache.StatusKey.Translate());
         list.Label("MUR_RamStatus".Translate(Reason(status.Plan.Ram),
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
@@ -112,6 +133,16 @@ public sealed class MoreUseResourcesMod : Mod
         if (gpu.Memory.DriverReported)
             list.Label("MUR_GpuBudgetStatus".Translate(InMiB(gpu.Memory.UsageBytes), InMiB(gpu.Memory.BudgetBytes)));
 
+        EngineExperiments experiments = runtime.Experiments;
+        if (settings.Value.UncompressedTextureCache)
+            list.Label((experiments.UncompressedActive ? "MUR_TextureCodecActive" : "MUR_TextureCodecInactive").Translate());
+        if (settings.Value.GpuPrepareGraphics)
+            list.Label("MUR_GraphicWarmStatus".Translate(experiments.PreparedGraphics, experiments.GraphicsFailures));
+        if (settings.Value.GpuAnisotropicMeshes)
+            list.Label(experiments.QualityConflict
+                ? "MUR_AnisoConflict".Translate()
+                : "MUR_AnisoStatus".Translate(experiments.RefinedTextures));
+
         Rect row = list.GetRect(30);
         float width = (row.width - 18) / 4;
         if (Widgets.ButtonText(new Rect(row.x, row.y, width, row.height), "MUR_Auto".Translate()))
@@ -136,6 +167,11 @@ public sealed class MoreUseResourcesMod : Mod
         Slider(list, "MUR_IdleSeconds", ref s.IdleSeconds, 10, 3600, 10);
         Slider(list, "MUR_FrameGuard", ref s.FrameGuardMs, 0, 500, 10);
         Toggle(list, "MUR_RecordLoadTiming", ref s.RecordLoadTiming);
+        if (TexturePrewarm.SupportedBuild)
+        {
+            Toggle(list, "MUR_CachePatchedXml", ref s.CachePatchedXml);
+            Toggle(list, "MUR_UncompressedTextureCache", ref s.UncompressedTextureCache);
+        }
     }
 
     private void DrawPhases(Listing_Standard list, ResourceSettings s)
@@ -210,6 +246,7 @@ public sealed class MoreUseResourcesMod : Mod
         list.GapLine();
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
         Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
+        Toggle(list, "MUR_CpuJitPrewarm", ref s.CpuJitPrewarm);
         Slider(list, "MUR_CpuAuditInterval", ref s.CpuAuditRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_FileDiscoveryInterval", ref s.AssetDiscoveryRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
@@ -220,6 +257,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_PrefetchEnabled", ref s.RamFileCache);
         Slider(list, "MUR_PrefetchRefreshInterval", ref s.RamPrefetchRefreshMinutes, 0, 120, 5);
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
+        Toggle(list, "MUR_RamGcLowLatency", ref s.RamGcLowLatency);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
         Toggle(list, "MUR_ResidentPacks", ref s.RamResidentPacks);
@@ -232,6 +270,9 @@ public sealed class MoreUseResourcesMod : Mod
         if (TexturePrewarm.SupportedBuild)
         {
             Toggle(list, "MUR_GpuEnabled", ref s.GpuEnabled);
+            Toggle(list, "MUR_GpuResidencyBoost", ref s.GpuResidencyBoost);
+            Toggle(list, "MUR_GpuPrepareGraphics", ref s.GpuPrepareGraphics);
+            Toggle(list, "MUR_GpuAnisotropicMeshes", ref s.GpuAnisotropicMeshes);
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);
             Slider(list, "MUR_GpuFrameBudget", ref s.GpuFrameBudgetTenthMs, 2, 80, 1);

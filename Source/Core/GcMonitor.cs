@@ -6,7 +6,7 @@ namespace MoreUseResources.Core
     /// <summary>Raw cumulative garbage-collector counters of this process.</summary>
     public readonly struct GcCounters
     {
-        public GcCounters(int gen0, int gen1, int gen2, double totalPauseMs, long heapBytes, long allocatedBytes)
+        public GcCounters(int gen0, int gen1, int gen2, double totalPauseMs, long heapBytes, long allocatedBytes, long committedBytes = 0)
         {
             Gen0 = gen0;
             Gen1 = gen1;
@@ -14,6 +14,7 @@ namespace MoreUseResources.Core
             TotalPauseMs = totalPauseMs;
             HeapBytes = heapBytes;
             AllocatedBytes = allocatedBytes;
+            CommittedBytes = committedBytes;
         }
 
         public int Gen0 { get; }
@@ -22,11 +23,12 @@ namespace MoreUseResources.Core
         public double TotalPauseMs { get; }
         public long HeapBytes { get; }
         public long AllocatedBytes { get; }
+        public long CommittedBytes { get; }
 
         public static GcCounters ReadProcess()
         {
             return new GcCounters(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
-                GC.GetTotalPauseDuration().TotalMilliseconds, GC.GetTotalMemory(false), GC.GetTotalAllocatedBytes(false));
+                GC.GetTotalPauseDuration().TotalMilliseconds, GC.GetTotalMemory(false), GC.GetTotalAllocatedBytes(false), GC.GetGCMemoryInfo().TotalCommittedBytes);
         }
     }
 
@@ -34,7 +36,7 @@ namespace MoreUseResources.Core
     public readonly struct GcSnapshot
     {
         public GcSnapshot(double windowSeconds, int gen0, int gen1, int gen2, double pauseMs, double allocatedMiBPerSecond,
-            long heapBytes, bool serverGc, bool concurrent, GCLatencyMode latency)
+            long heapBytes, bool serverGc, bool concurrent, GCLatencyMode latency, long committedBytes = 0)
         {
             WindowSeconds = windowSeconds;
             Gen0Collections = gen0;
@@ -46,6 +48,7 @@ namespace MoreUseResources.Core
             ServerGc = serverGc;
             Concurrent = concurrent;
             Latency = latency;
+            CommittedBytes = committedBytes;
         }
 
         public double WindowSeconds { get; }
@@ -57,6 +60,7 @@ namespace MoreUseResources.Core
         public double PauseMs { get; }
         public double AllocatedMiBPerSecond { get; }
         public long HeapBytes { get; }
+        public long CommittedBytes { get; }
         public bool ServerGc { get; }
         public bool Concurrent { get; }
         public GCLatencyMode Latency { get; }
@@ -87,16 +91,16 @@ namespace MoreUseResources.Core
         public GcSnapshot Latest { get; private set; }
         public bool HasData { get; private set; }
 
-        public void Sample(long nowMs, GCLatencyMode latency)
+        public bool Sample(long nowMs, GCLatencyMode latency)
         {
             if (_windowStartMs < 0 || nowMs < _windowStartMs)
             {
                 _windowStartMs = nowMs;
                 _start = _read();
-                return;
+                return false;
             }
             long elapsed = nowMs - _windowStartMs;
-            if (elapsed < WindowMs) return;
+            if (elapsed < WindowMs) return false;
             GcCounters now = _read();
             // CollectionCount(n) includes every collection of a higher generation.
             int gen2 = Math.Max(0, now.Gen2 - _start.Gen2);
@@ -105,10 +109,11 @@ namespace MoreUseResources.Core
             double seconds = elapsed / 1000.0;
             double allocated = Math.Max(0, now.AllocatedBytes - _start.AllocatedBytes) / (1024.0 * 1024.0) / seconds;
             Latest = new GcSnapshot(seconds, gen0, gen1, gen2, Math.Max(0, now.TotalPauseMs - _start.TotalPauseMs),
-                allocated, now.HeapBytes, _serverGc, _concurrent, latency);
+                allocated, now.HeapBytes, _serverGc, _concurrent, latency, now.CommittedBytes);
             HasData = true;
             _windowStartMs = nowMs;
             _start = now;
+            return true;
         }
     }
 }

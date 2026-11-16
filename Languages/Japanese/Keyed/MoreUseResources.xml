@@ -102,4 +102,27 @@
   <MUR_MemoryAtTarget>目標到達</MUR_MemoryAtTarget>
   <MUR_MemoryLimitedByFreeMemory>空きRAM待ち</MUR_MemoryLimitedByFreeMemory>
   <MUR_MemoryPressure>メモリ圧迫のため解放中</MUR_MemoryPressure>
+  <MUR_GcSaveBaseline>このGC計測を比較の基準として保存</MUR_GcSaveBaseline>
+  <MUR_GcComparison>GCの基準との差（{0}、{1}/{2}）　{3} 回/分、停止 {4} ms/分、ヒープ {5} MiB、確保 {6} MiB/s、GCコミット済み {7} MiB</MUR_GcComparison>
+  <MUR_GcComparisonPending>比較基準のフェーズ（{0}）でGC計測を待機中</MUR_GcComparisonPending>
+  <MUR_CachePatchedXml>対応するXMLパッチの適用結果をキャッシュ（実験機能・要再起動）</MUR_CachePatchedXml>
+  <MUR_PatchedXmlOff>XMLパッチキャッシュは次回起動時に有効になります</MUR_PatchedXmlOff>
+  <MUR_PatchedXmlWaiting>起動時のXMLパッチ工程を待機中</MUR_PatchedXmlWaiting>
+  <MUR_PatchedXmlBypass>XMLキャッシュの適用条件を満たさず、通常のパッチ処理を使用</MUR_PatchedXmlBypass>
+  <MUR_PatchedXmlHit>対応するXMLパッチの結果をキャッシュから復元</MUR_PatchedXmlHit>
+  <MUR_PatchedXmlMiss>一致するXMLキャッシュがなく、通常のパッチ処理を使用</MUR_PatchedXmlMiss>
+  <MUR_UncompressedTextureCache>新規テクスチャキャッシュを無圧縮で書き込む（実験機能）</MUR_UncompressedTextureCache>
+  <MUR_TextureCodecActive>テクスチャキャッシュの新規書き込みは無圧縮</MUR_TextureCodecActive>
+  <MUR_TextureCodecInactive>無圧縮キャッシュの書き込みは停止中</MUR_TextureCodecInactive>
+  <MUR_CpuJitPrewarm>ゲーム本体とMODのメソッドをJIT先行コンパイル（実験機能）</MUR_CpuJitPrewarm>
+  <MUR_JitStatus>JIT先行コンパイル　準備 {0} 件、失敗 {1} 件、対象外 {2} 件、処理 {3} ms（{4}）</MUR_JitStatus>
+  <MUR_JitComplete>完了</MUR_JitComplete>
+  <MUR_JitPending>処理中または許可フェーズ待ち</MUR_JitPending>
+  <MUR_GpuResidencyBoost>エンジンの退避機能を使い、予算75%までテクスチャを先読み（実験機能）</MUR_GpuResidencyBoost>
+  <MUR_GpuPrepareGraphics>タイトル画面・ポーズ中に対応グラフィックとマテリアルを事前準備（実験機能）</MUR_GpuPrepareGraphics>
+  <MUR_GraphicWarmStatus>グラフィック準備　準備 {0} 件、失敗 {1} 件</MUR_GraphicWarmStatus>
+  <MUR_GpuAnisotropicMeshes>対応する繰り返しメッシュテクスチャに最大4倍の異方性フィルタ（実験機能）</MUR_GpuAnisotropicMeshes>
+  <MUR_AnisoConflict>グラフィック設定MODが有効なため異方性フィルタの変更を停止</MUR_AnisoConflict>
+  <MUR_AnisoStatus>メッシュ用のフィルタ品質を上げたテクスチャ　{0} 件</MUR_AnisoStatus>
+  <MUR_RamGcLowLatency>許可されたRAMフェーズでGCの低遅延モードを使う</MUR_RamGcLowLatency>
 </LanguageData>

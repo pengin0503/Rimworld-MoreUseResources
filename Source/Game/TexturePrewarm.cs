@@ -107,7 +107,9 @@ internal sealed class TexturePrewarm
         Memory = info;
 
         long keepFree = settings.GpuKeepFreeMiB * ResourceSettings.MiB;
-        if (info.UsageBytes >= info.CapBytes(settings.GpuTargetPercent, keepFree))
+        bool adaptive = settings.GpuResidencyBoost && TextureResidency.Policy == TextureResidencyPolicy.OffloadUnderPressure;
+        int target = HardwareWork.TextureTarget(info, settings.GpuTargetPercent, keepFree, adaptive, true);
+        if (info.UsageBytes >= info.CapBytes(target, keepFree))
         {
             StatusKey = "MUR_GpuAtTarget";
             nextWorkMs = now + 1000;
@@ -144,7 +146,7 @@ internal sealed class TexturePrewarm
                 || core.height < 1 || core.height > settings.GpuMaxTextureDimension)
                 continue;
             PrewarmAdmission admission = PrewarmAdmissionPolicy.Evaluate(
-                info, core.width, core.height, settings.GpuTargetPercent, keepFree,
+                info, core.width, core.height, target, keepFree,
                 settings.GpuMaxTextureDimension);
             if (admission == PrewarmAdmission.Reject)
             {
@@ -174,7 +176,7 @@ internal sealed class TexturePrewarm
                 return;
             }
             Memory = info;
-            if (info.UsageBytes >= info.CapBytes(settings.GpuTargetPercent, keepFree))
+            if (info.UsageBytes >= info.CapBytes(target, keepFree))
             {
                 StatusKey = "MUR_GpuAtTarget";
                 break;
@@ -197,7 +199,7 @@ internal sealed class TexturePrewarm
         nextWorkMs = now + delayMs;
     }
 
-    private static bool TryReadTextureHeap(out VramInfo memory)
+    internal static bool TryReadTextureHeap(out VramInfo memory)
     {
         memory = default;
         if (!GpuMemoryReport.TryGetSummary(out GpuMemorySummary report) || !report.DriverReported)
@@ -231,6 +233,8 @@ internal sealed class TexturePrewarm
         textures = packs[packIndex++].GetContentHolder<Texture2D>()?.contentList.Values.GetEnumerator();
         return null;
     }
+
+    internal void InvalidateScan() => ResetScan();
 
     private void ResetScan()
     {
