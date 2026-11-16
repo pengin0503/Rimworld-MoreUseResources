@@ -13,6 +13,7 @@
   <MUR_MemoryStatus>Game working set {0} MiB · OS available {1} MiB · Governor {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>Waiting for an OS memory sample. RAM growth and file prefetch require a valid sample.</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} · Prewarmed textures {1}</MUR_GpuStatus>
+  <MUR_GpuMaintenanceStatus>Completed GPU prewarm passes {0}</MUR_GpuMaintenanceStatus>
   <MUR_GpuQueueStatus>GPU deferred {0} · Dropped at queue limit {1} · Permanently unsuitable {2} · Upload failures {3}</MUR_GpuQueueStatus>
   <MUR_GpuBudgetStatus>GPU last driver sample {0} MiB used / {1} MiB budget</MUR_GpuBudgetStatus>
   <MUR_Auto>Auto</MUR_Auto>
@@ -59,6 +60,7 @@
   <MUR_GpuTarget>Maximum target {0}% of the driver budget</MUR_GpuTarget>
   <MUR_GpuKeepFree>VRAM headroom {0} MiB</MUR_GpuKeepFree>
   <MUR_GpuFrameBudget>Time slice {0} × 0.1 ms</MUR_GpuFrameBudget>
+  <MUR_GpuRefreshInterval>Texture refresh interval {0} seconds (0 disables rescan)</MUR_GpuRefreshInterval>
   <MUR_GpuHint>Texture prewarming requires a discrete GPU and a reported Vulkan heap budget during steady frames. Waylith manages uploaded textures.</MUR_GpuHint>
   <MUR_GpuUnsupported>Texture prewarming is available on Windows 1.7.5011 rev24.</MUR_GpuUnsupported>
   <MUR_GpuDisabled>Off</MUR_GpuDisabled>
