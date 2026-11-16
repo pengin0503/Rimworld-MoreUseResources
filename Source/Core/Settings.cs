@@ -100,6 +100,8 @@ namespace MoreUseResources.Core
         public int GpuFrameBudgetTenthMs = 20;
         /// <summary>How often to recheck Waylith's real textures after a full pass; 0 disables maintenance.</summary>
         public int GpuRefreshSeconds = 60;
+        /// <summary>Largest actual game texture edge to prewarm; increase at your own risk.</summary>
+        public int GpuMaxTextureDimension = 1024;
         public bool GpuReserve = false;
         public int GpuReserveMiB = 2048;
 
@@ -195,6 +197,7 @@ namespace MoreUseResources.Core
             GpuKeepFreeMiB = Math.Clamp(GpuKeepFreeMiB, 512, 65536);
             GpuFrameBudgetTenthMs = Math.Clamp(GpuFrameBudgetTenthMs, 2, 80);
             GpuRefreshSeconds = Math.Clamp(GpuRefreshSeconds, 0, 600);
+            GpuMaxTextureDimension = Math.Clamp(GpuMaxTextureDimension, 1024, 4096);
             GpuReserveMiB = Math.Clamp(GpuReserveMiB, 64, 65536);
         }
 
