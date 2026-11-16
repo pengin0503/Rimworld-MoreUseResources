@@ -38,6 +38,7 @@ namespace MoreUseResources.Core
         public long FileErrors;
         public int FilesDeferredForBudget;
         public bool FilePassComplete;
+        public int FileRefreshPasses;
         public int AuditSources;
         public int AuditCompleted;
         public int AuditDuplicates;
@@ -255,7 +256,8 @@ namespace MoreUseResources.Core
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
             _assetScanAllowed = mayRead || mayAudit;
             if (_assetScanAllowed) QueueAssetScan();
-            _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes, allowCopies: plan.Ram.Active);
+            _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes,
+                allowCopies: plan.Ram.Active, refreshIntervalMs: s.RamPrefetchRefreshMinutes * 60_000L);
             _assetAudit.Pump(mayAudit, Math.Max(1, workers), s.CpuAuditRescanMinutes * 60_000L);
             _gc.Apply(plan.Ram.Active && mayRead && s.RamGcLowLatency);
             _priority.Apply(plan.Cpu.Active ? s.ProcessPriority : ProcessPriorityChoice.Unchanged);
@@ -412,6 +414,7 @@ namespace MoreUseResources.Core
                 FileErrors = _fileCache.Errors,
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
                 FilePassComplete = _fileCache.PassComplete,
+                FileRefreshPasses = _fileCache.PeriodicRefreshes,
                 AuditSources = audit.Sources,
                 AuditCompleted = audit.Completed,
                 AuditDuplicates = audit.Duplicates,
