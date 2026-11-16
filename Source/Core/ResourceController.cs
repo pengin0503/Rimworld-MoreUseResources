@@ -54,6 +54,12 @@ namespace MoreUseResources.Core
         public int XmlDefinitionCollisions;
         public int XmlFilesSkipped;
         public int XmlKeysOmitted;
+        public int TextureFilesChecked;
+        public int TextureFilesValid;
+        public int TextureFilesMalformed;
+        public int TextureFilesSkipped;
+        public long TextureRgba8EquivalentBytes;
+        public long TextureBytesValidated;
         public string? FileLastError;
         public bool GcLowLatencyApplied;
         public string? GcError;
@@ -422,6 +428,12 @@ namespace MoreUseResources.Core
                 XmlDefinitionCollisions = audit.XmlDefinitionCollisions,
                 XmlFilesSkipped = audit.XmlFilesSkipped,
                 XmlKeysOmitted = audit.XmlKeysOmitted,
+                TextureFilesChecked = audit.TextureFilesChecked,
+                TextureFilesValid = audit.TextureFilesValid,
+                TextureFilesMalformed = audit.TextureFilesMalformed,
+                TextureFilesSkipped = audit.TextureFilesSkipped,
+                TextureRgba8EquivalentBytes = audit.TextureRgba8EquivalentBytes,
+                TextureBytesValidated = audit.TextureBytesValidated,
                 FileLastError = _fileCache.LastError,
                 GcLowLatencyApplied = _gc.Applied,
                 GcError = _gc.LastError,
