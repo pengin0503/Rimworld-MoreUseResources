@@ -46,6 +46,8 @@ namespace MoreUseResources.Core
         public int AuditErrors;
         public int AuditSkipped;
         public bool AuditComplete;
+        public int AuditPassesCompleted;
+        public long AuditChangedFiles;
         public string? FileLastError;
         public bool GcLowLatencyApplied;
         public string? GcError;
@@ -242,7 +244,7 @@ namespace MoreUseResources.Core
             _assetScanAllowed = mayRead || mayAudit;
             if (_assetScanAllowed) QueueAssetScan();
             _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes, allowCopies: plan.Ram.Active);
-            _assetAudit.Pump(mayAudit, Math.Max(1, workers));
+            _assetAudit.Pump(mayAudit, Math.Max(1, workers), s.CpuAuditRescanMinutes * 60_000L);
             _gc.Apply(plan.Ram.Active && mayRead && s.RamGcLowLatency);
             _priority.Apply(plan.Cpu.Active ? s.ProcessPriority : ProcessPriorityChoice.Unchanged);
 
@@ -406,6 +408,8 @@ namespace MoreUseResources.Core
                 AuditErrors = audit.Errors,
                 AuditSkipped = audit.Skipped,
                 AuditComplete = audit.Complete,
+                AuditPassesCompleted = audit.PassesCompleted,
+                AuditChangedFiles = audit.ChangedFiles,
                 FileLastError = _fileCache.LastError,
                 GcLowLatencyApplied = _gc.Applied,
                 GcError = _gc.LastError,
