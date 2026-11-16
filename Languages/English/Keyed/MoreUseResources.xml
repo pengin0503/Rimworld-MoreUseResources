@@ -44,6 +44,7 @@
   <MUR_PhaseQuitting>Quitting</MUR_PhaseQuitting>
   <MUR_CpuEnabled>Allow CPU workers</MUR_CpuEnabled>
   <MUR_CpuIndexAssets>SHA-256 audit enabled mod assets and index exact duplicates on CPU workers</MUR_CpuIndexAssets>
+  <MUR_FileDiscoveryInterval>Re-enumerate added/deleted mod assets every {0} minutes (0 disables)</MUR_FileDiscoveryInterval>
   <MUR_CpuAuditInterval>Asset re-audit interval {0} minutes (0 disables)</MUR_CpuAuditInterval>
   <MUR_AuditRescanStatus>Audit passes completed {0} · Content changes detected {1}</MUR_AuditRescanStatus>
   <MUR_XmlAuditStatus>XML files {0} · Def entries {1} · Candidate Def name collisions {2} · Parse failures {3} · Oversized skips {4} · Index limit omissions {5}</MUR_XmlAuditStatus>
@@ -54,6 +55,7 @@
   <MUR_PrefetchEnabled>Prefetch enabled mod assets into the OS file cache</MUR_PrefetchEnabled>
   <MUR_PrefetchRefreshInterval>OS file cache refresh interval {0} minutes (0 disables)</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>Completed OS file cache maintenance passes {0}</MUR_PrefetchMaintenanceStatus>
+  <MUR_FileDiscoveryStatus>Asset folder discoveries {0} · Source list changes {1}</MUR_FileDiscoveryStatus>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>
