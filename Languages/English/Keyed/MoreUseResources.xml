@@ -52,6 +52,8 @@
   <MUR_Synthetic>Generate extra CPU load (experimental, can slow the game)</MUR_Synthetic>
   <MUR_Duty>Synthetic CPU duty cycle {0}%</MUR_Duty>
   <MUR_PrefetchEnabled>Prefetch enabled mod assets into the OS file cache</MUR_PrefetchEnabled>
+  <MUR_PrefetchRefreshInterval>OS file cache refresh interval {0} minutes (0 disables)</MUR_PrefetchRefreshInterval>
+  <MUR_PrefetchMaintenanceStatus>Completed OS file cache maintenance passes {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>
