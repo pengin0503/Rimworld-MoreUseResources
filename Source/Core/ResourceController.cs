@@ -60,6 +60,9 @@ namespace MoreUseResources.Core
         private readonly IMemoryProbe _probe;
         private readonly int _logicalProcessors;
         private readonly Func<bool>? _savingProbe;
+        private readonly IReadOnlyList<string>? _assetFolders;
+        private int _assetScan;
+        private volatile bool _assetScanAllowed;
         private readonly WorkerPool _pool;
         private readonly NativeBlockStore _cacheStore = new NativeBlockStore();
         private readonly NativeBlockStore _reserveStore = new NativeBlockStore();
@@ -78,7 +81,7 @@ namespace MoreUseResources.Core
         private volatile bool _throttled;
         private volatile int _manual;
         private volatile bool _stopping;
-        private volatile bool _releaseRequested;
+        private int _releaseRequested;
         private bool _disposed;
         private string? _controlError;
 
@@ -88,16 +91,17 @@ namespace MoreUseResources.Core
         private long _privateBytes;
         private long _lastPrivateStamp;
 
-        public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null, ResourceSettings? initial = null)
+        public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null, ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null)
         {
             _probe = probe;
             _logicalProcessors = Math.Max(1, logicalProcessors);
             _savingProbe = savingProbe;
+            _assetFolders = assetFolders;
             _settings = (initial ?? new ResourceSettings()).Clone();
             _settings.Clamp();
-            _pool = new WorkerPool(_logicalProcessors);
+            _pool = new WorkerPool(_logicalProcessors, mayBurn: CpuLoadAllowed);
             _governor = new MemoryGovernor(probe, _cacheStore, _reserveStore);
-            _fileCache = new FileCache(_cacheStore, _pool);
+            _fileCache = new FileCache(_cacheStore, _pool, mayRead: FileReadAllowed, mayCopy: RamCopyAllowed);
             _signals = new RawGameSignals { Focused = true };
             _plan = ActivationPlanner.Plan(_settings, new PhaseSnapshot(GamePhase.Startup, PhaseModifiers.None), ManualMode.Auto);
         }
@@ -166,7 +170,7 @@ namespace MoreUseResources.Core
         public void SetFileSources(IEnumerable<string> files) => _fileCache.SetSources(files);
 
         /// <summary>User action: give back all held memory now. Growth resumes by the normal rules.</summary>
-        public void RequestReleaseMemory() => _releaseRequested = true;
+        public void RequestReleaseMemory() => Interlocked.Exchange(ref _releaseRequested, 1);
 
         /// <summary>Runs one control step synchronously. Used by tests and by the loop.</summary>
         public void ControlTick(bool slow, double slowDtSeconds)
@@ -175,10 +179,7 @@ namespace MoreUseResources.Core
             RawGameSignals signals;
             lock (_gate) { signals = _signals; }
             if (_stopping) signals.Quitting = true;
-            if (_savingProbe != null)
-            {
-                try { signals.Saving |= _savingProbe(); } catch (Exception) { }
-            }
+            signals.Saving |= SavingInProgress();
 
             PhaseSnapshot phase = PhaseResolver.Resolve(signals, s.IdleBoost ? s.IdleSeconds : 0);
             ActivationPlan plan = ActivationPlanner.Plan(s, phase, Manual);
@@ -193,8 +194,15 @@ namespace MoreUseResources.Core
             int maxWorkers = s.EffectiveMaxWorkers(_logicalProcessors);
             int workers = plan.Cpu.Active ? Math.Max(1, (int)Math.Round(maxWorkers * plan.Cpu.Intensity)) : 0;
             bool synthetic = plan.Cpu.Active && s.CpuSyntheticLoad;
-            if (synthetic && throttled) workers = Math.Max(1, workers / 2);
-            bool fileWork = plan.Ram.Active && s.RamFileCache;
+            if (throttled) workers = synthetic ? Math.Max(1, workers / 2) : Math.Min(1, workers);
+            bool holdCopies = s.RamEnabled && s.RamHoldCopies;
+            bool fileWork = s.RamFileCache && (plan.Ram.Active || plan.Cpu.Active);
+            if (!fileWork)
+            {
+                _assetScanAllowed = false;
+                _fileCache.Suspend();
+            }
+            if (!fileWork && !synthetic) workers = 0;
             if (fileWork && workers == 0) workers = 1; // one service worker so the RAM feature works without the CPU feature
             ThreadPriority priority = s.CpuWorkerPriority == WorkerPriority.BelowNormal ? ThreadPriority.BelowNormal : ThreadPriority.Lowest;
             _pool.Configure(workers, fileWork, synthetic, s.CpuSyntheticDutyPercent, priority);
@@ -202,16 +210,23 @@ namespace MoreUseResources.Core
             if (!slow) return;
 
             // ---- RAM ----
-            if (_releaseRequested)
+            _fileCache.CloseAdmission();
+            _governor.Tick(s, plan.Ram, slowDtSeconds, _shutdownCts.Token, ReserveAllowed);
+            bool releasing = Interlocked.Exchange(ref _releaseRequested, 0) != 0;
+            if (releasing)
             {
-                _releaseRequested = false;
+                _fileCache.Suspend();
                 _cacheStore.ReleaseAll();
                 _reserveStore.ReleaseAll();
             }
-            _governor.Tick(s, plan.Ram, slowDtSeconds, _shutdownCts.Token);
-            _fileCache.Pump(fileWork, s.RamHoldCopies, s.RamHoldCopies ? _governor.CacheLimitBytes : 0);
-            _gc.Apply(plan.Ram.Active && s.RamGcLowLatency);
-            _priority.Apply(s.Enabled && s.CpuEnabled && phase.Phase != GamePhase.Quitting ? s.ProcessPriority : ProcessPriorityChoice.Unchanged);
+            MemoryStatus memory = _governor.LastStatus;
+            bool mayRead = !releasing && fileWork && FileReadAllowed() && memory.FromOperatingSystem
+                && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            _assetScanAllowed = mayRead;
+            if (mayRead) QueueAssetScan();
+            _fileCache.Pump(mayRead, holdCopies, _governor.CacheLimitBytes, allowCopies: plan.Ram.Active);
+            _gc.Apply(plan.Ram.Active && mayRead && s.RamGcLowLatency);
+            _priority.Apply(plan.Cpu.Active ? s.ProcessPriority : ProcessPriorityChoice.Unchanged);
 
             // ---- measurements ----
             long now = Stopwatch.GetTimestamp();
@@ -223,6 +238,60 @@ namespace MoreUseResources.Core
             }
             _lastBusyTicks = busy;
             _lastShareStamp = now;
+        }
+
+        private bool SavingInProgress() => _savingProbe?.Invoke() ?? false;
+
+        private bool CpuLoadAllowed()
+        {
+            ResourceSettings s = _settings;
+            return !_stopping && s.Enabled && s.CpuEnabled && s.CpuSyntheticLoad && Manual != ManualMode.Paused
+                && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
+        }
+
+        private bool FileReadAllowed()
+        {
+            ResourceSettings s = _settings;
+            if (_stopping || !s.Enabled || !s.RamFileCache || Manual == ManualMode.Paused) return false;
+            if (!SavingInProgress()) return true;
+            int phase = (int)GamePhase.Saving;
+            return (s.RamEnabled && s.RamPhases[phase])
+                || (s.CpuEnabled && s.CpuPhases[phase]);
+        }
+
+        private bool RamCopyAllowed()
+        {
+            ResourceSettings s = _settings;
+            return s.RamEnabled && s.RamHoldCopies
+                && (!SavingInProgress() || s.RamPhases[(int)GamePhase.Saving]);
+        }
+
+        private bool ReserveAllowed()
+        {
+            ResourceSettings s = _settings;
+            return !_stopping && s.Enabled && s.RamEnabled && s.RamReserve && Manual != ManualMode.Paused
+                && (!SavingInProgress() || s.RamPhases[(int)GamePhase.Saving]);
+        }
+
+        private void QueueAssetScan()
+        {
+            if (_assetFolders == null || Interlocked.CompareExchange(ref _assetScan, 1, 0) != 0) return;
+            _pool.Enqueue(token =>
+            {
+                try
+                {
+                    List<string> files = GameAssetFiles.Discover(_assetFolders, token, () => _assetScanAllowed && FileReadAllowed());
+                    if (!token.IsCancellationRequested && _assetScanAllowed && FileReadAllowed())
+                    {
+                        _fileCache.SetSources(files);
+                        Volatile.Write(ref _assetScan, 2);
+                    }
+                }
+                finally
+                {
+                    Interlocked.CompareExchange(ref _assetScan, 0, 1);
+                }
+            });
         }
 
         private void ControlLoop()
@@ -248,6 +317,8 @@ namespace MoreUseResources.Core
                 {
                     // Never let the control thread die; with no plan updates everything would keep its last state.
                     _controlError = ex.GetType().Name + ": " + ex.Message;
+                    _assetScanAllowed = false;
+                    _fileCache.Suspend();
                     try { _pool.Configure(0, false, false, 1, ThreadPriority.Lowest); } catch (Exception) { }
                 }
                 Thread.Sleep(TickMs);
@@ -318,6 +389,8 @@ namespace MoreUseResources.Core
                 if (_disposed) return;
                 _disposed = true;
                 _stopping = true;
+                _assetScanAllowed = false;
+                _fileCache.Suspend();
                 thread = _thread;
             }
             try { _shutdownCts.Cancel(); } catch (Exception) { }

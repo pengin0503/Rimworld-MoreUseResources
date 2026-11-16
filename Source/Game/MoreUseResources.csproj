@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>MoreUseResources</AssemblyName>
+    <RootNamespace>MoreUseResources</RootNamespace>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugType>none</DebugType>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Core/*.cs" Link="Core/%(Filename)%(Extension)" />
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.5011-unstable" PrivateAssets="all" />
+    <PackageReference Include="Lib.Harmony" Version="3.0.0-rc.5" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

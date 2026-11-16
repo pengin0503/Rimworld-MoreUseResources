@@ -46,11 +46,12 @@ namespace MoreUseResources.Core
         public MemoryStatus LastStatus { get; private set; }
         public MemoryGovernorState State { get; private set; }
         public long PressureEvents => Interlocked.Read(ref _pressureEvents);
-        /// <summary>Most bytes the file cache store may hold right now (never below what it already holds).</summary>
+        /// <summary>Most bytes the file cache store may hold right now.</summary>
         public long CacheLimitBytes => Interlocked.Read(ref _cacheLimit);
 
-        public void Tick(ResourceSettings s, ResourceActivation ram, double dtSeconds, CancellationToken token = default)
+        public void Tick(ResourceSettings s, ResourceActivation ram, double dtSeconds, CancellationToken token = default, Func<bool>? mayReserve = null)
         {
+            long pendingAtSample = _cache.PendingBytes;
             MemoryStatus st = _probe.Read();
             LastStatus = st;
             long now = _clockMs();
@@ -71,7 +72,7 @@ namespace MoreUseResources.Core
 
             // 2. Pressure-driven release. Synthetic reservation goes first, real data second.
             long minFree = s.RamMinFreeMiB * ResourceSettings.MiB;
-            long headroom = st.AvailablePhysical - minFree;
+            long headroom = st.FromOperatingSystem ? st.AvailablePhysical - minFree : -long.MaxValue;
             bool pressure = false;
             if (headroom < 0 && (_reserve.CommittedBytes > 0 || _cache.CommittedBytes > 0))
             {
@@ -83,24 +84,17 @@ namespace MoreUseResources.Core
                     Interlocked.Increment(ref _pressureEvents);
                     _holdGrowthUntilMs = now + PressureHoldMs;
                     pressure = true;
-                    headroom += freed;
+                    headroom = 0; // wait for the next OS sample before treating freed bytes as available
                 }
             }
 
-            bool mayGrow = ram.Active && now >= _holdGrowthUntilMs;
+            bool mayGrow = ram.Active && st.FromOperatingSystem && now >= _holdGrowthUntilMs;
             long growRoom = Math.Max(0, headroom - MarginBytes);
 
-            // 3. File cache allowance (the cache fills itself through FileCache jobs).
-            long cacheHeld = _cache.TotalBytes;
-            long cacheLimit = cacheHeld;
-            if (wantCache && mayGrow)
-            {
-                cacheLimit = Math.Min(cacheBudget, cacheHeld + growRoom);
-                if (cacheLimit < cacheHeld) cacheLimit = cacheHeld;
-            }
-            Interlocked.Exchange(ref _cacheLimit, cacheLimit);
+            // An in-flight allocation can still touch physical pages after the OS sample.
+            growRoom = Math.Max(0, growRoom - pendingAtSample);
 
-            // 4. Reservation growth, rate limited.
+            // Reserve and file copies share this single physical headroom budget.
             bool reserveGrew = false;
             bool reserveBlocked = false;
             if (wantReserve && mayGrow)
@@ -109,7 +103,8 @@ namespace MoreUseResources.Core
                     _reserveAllowance + ReserveRateBytesPerSecond * Math.Max(0.0, dtSeconds) * ram.Intensity,
                     ChunkBytes * (double)MaxChunksPerTick);
                 int chunks = 0;
-                while (chunks < MaxChunksPerTick && _reserveAllowance >= ChunkBytes && !token.IsCancellationRequested)
+                while (chunks < MaxChunksPerTick && _reserveAllowance >= ChunkBytes && !token.IsCancellationRequested
+                    && (mayReserve?.Invoke() ?? true))
                 {
                     long held = _reserve.TotalBytes;
                     if (held >= reserveTarget) break;
@@ -125,6 +120,11 @@ namespace MoreUseResources.Core
                         break;
                     }
                     NativeBlockStore.Touch(ptr, size, token);
+                    if (token.IsCancellationRequested || !(mayReserve?.Invoke() ?? true))
+                    {
+                        _reserve.Abort(ptr, size);
+                        break;
+                    }
                     _reserve.Commit(ptr, size, null);
                     growRoom -= size;
                     _reserveAllowance -= size;
@@ -137,14 +137,18 @@ namespace MoreUseResources.Core
                 _reserveAllowance = 0;
             }
 
-            // 5. State for diagnostics.
+            long cacheHeld = _cache.TotalBytes;
+            long cacheLimit = wantCache && mayGrow ? Math.Min(cacheBudget, cacheHeld + growRoom) : 0;
+            Interlocked.Exchange(ref _cacheLimit, cacheLimit);
+
+            // State for diagnostics.
             bool cacheWantsMore = wantCache && cacheHeld < cacheBudget;
             bool reserveWantsMore = wantReserve && _reserve.TotalBytes < reserveTarget;
             if (pressure) State = MemoryGovernorState.Pressure;
             else if (!wantCache && !wantReserve) State = MemoryGovernorState.Idle;
             else if (!ram.Active) State = MemoryGovernorState.Idle;
             else if (reserveGrew) State = MemoryGovernorState.Growing;
-            else if (reserveBlocked || (cacheWantsMore && cacheLimit <= cacheHeld) || now < _holdGrowthUntilMs)
+            else if (!st.FromOperatingSystem || reserveBlocked || (cacheWantsMore && cacheLimit <= cacheHeld) || now < _holdGrowthUntilMs)
                 State = (cacheWantsMore || reserveWantsMore) ? MemoryGovernorState.LimitedByFreeMemory : MemoryGovernorState.AtTarget;
             else if (cacheWantsMore || reserveWantsMore) State = MemoryGovernorState.Growing;
             else State = MemoryGovernorState.AtTarget;

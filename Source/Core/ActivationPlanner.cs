@@ -98,15 +98,6 @@ namespace MoreUseResources.Core
             {
                 return ResourceActivation.Off(ActivationReason.PhaseOff);
             }
-            if (manual == ManualMode.ForceRun && phase.Phase != GamePhase.Saving)
-            {
-                return new ResourceActivation(true, 1f, ActivationReason.ForcedByUser);
-            }
-
-            if (!s.PhasesFor(kind)[index])
-            {
-                return ResourceActivation.Off(ActivationReason.PhaseOff);
-            }
             if (phase.Has(PhaseModifiers.Unfocused) && !s.AllowWhenUnfocused)
             {
                 return ResourceActivation.Off(ActivationReason.Unfocused);
@@ -116,6 +107,15 @@ namespace MoreUseResources.Core
                 return ResourceActivation.Off(ActivationReason.WorldViewOff);
             }
 
+            if (manual == ManualMode.ForceRun && phase.Phase != GamePhase.Saving)
+            {
+                return new ResourceActivation(true, 1f, ActivationReason.ForcedByUser);
+            }
+
+            if (!s.PhasesFor(kind)[index])
+            {
+                return ResourceActivation.Off(ActivationReason.PhaseOff);
+            }
             float intensity = s.PhaseIntensity[index] / 100f;
             if (s.IdleBoost && phase.Has(PhaseModifiers.Idle) && phase.Phase != GamePhase.Saving)
             {

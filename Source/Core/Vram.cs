@@ -24,6 +24,16 @@ namespace MoreUseResources.Core
             long byFree = BudgetBytes - keepFreeBytes;
             return Math.Max(0, Math.Min(byPercent, byFree));
         }
+
+        internal bool CanPrewarmTexture(int width, int height, int targetPercent, long keepFreeBytes)
+        {
+            if (!DriverReported || UsageBytes < 0 || BudgetBytes <= 0 || width is < 1 or > 1024 || height is < 1 or > 1024)
+                return false;
+
+            // Conservative allowance for the image, mip chain, alignment and driver block growth.
+            long estimate = (long)width * height * 16 + 32 * ResourceSettings.MiB;
+            return CapBytes(targetPercent, keepFreeBytes) - UsageBytes >= estimate;
+        }
     }
 
     /// <summary>Everything the VRAM features need from the engine. Implemented game-side; faked in tests.</summary>

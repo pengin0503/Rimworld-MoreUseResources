@@ -1,0 +1,36 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+      - name: Select the exact SDK used for the committed DLL
+        run: dotnet new globaljson --sdk-version 10.0.100 --roll-forward disable
+      - name: Test resource controller
+        run: dotnet test Tests/MoreUseResources.Tests.csproj -c Release
+      - name: Build game adapter
+        run: dotnet build Source/Game/MoreUseResources.csproj -c Release
+      - name: Verify checked-in DLL
+        run: cmp Source/Game/bin/Release/net10.0/MoreUseResources.dll Assemblies/MoreUseResources.dll
+      - name: Package installable mod
+        run: python3 tools/package_mod.py dist/Rimworld-MoreUseResources.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rimworld-MoreUseResources
+          path: dist/Rimworld-MoreUseResources.zip
+          if-no-files-found: error

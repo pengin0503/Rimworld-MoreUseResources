@@ -19,6 +19,7 @@ namespace MoreUseResources.Core
         private readonly ManualResetEventSlim _wake = new ManualResetEventSlim(false);
         private readonly object _gate = new object();
         private readonly string _namePrefix;
+        private readonly Func<bool>? _mayBurn;
 
         private CancellationTokenSource _jobCts = new CancellationTokenSource();
         private volatile bool _stop;
@@ -35,12 +36,13 @@ namespace MoreUseResources.Core
         private int _runningJobs;
         private string? _lastError;
 
-        public WorkerPool(int maxThreads, string namePrefix = "MUR-Worker")
+        public WorkerPool(int maxThreads, string namePrefix = "MUR-Worker", Func<bool>? mayBurn = null)
         {
             if (maxThreads < 1) maxThreads = 1;
             if (maxThreads > 256) maxThreads = 256;
             _threads = new Thread?[maxThreads];
             _namePrefix = namePrefix;
+            _mayBurn = mayBurn;
         }
 
         public int MaxThreads => _threads.Length;
@@ -129,8 +131,7 @@ namespace MoreUseResources.Core
                 {
                     if (index >= _activeWorkers)
                     {
-                        _wake.Wait(100);
-                        if (_jobs.IsEmpty) _wake.Reset();
+                        Thread.Sleep(SliceMs);
                         continue;
                     }
                     if (_jobsAllowed && _jobs.TryDequeue(out Action<CancellationToken>? job))
@@ -139,7 +140,7 @@ namespace MoreUseResources.Core
                         RunJob(job);
                         continue;
                     }
-                    if (_synthetic)
+                    if (_synthetic && (_mayBurn?.Invoke() ?? true))
                     {
                         BurnSlice(ref burn);
                         continue;
@@ -198,7 +199,7 @@ namespace MoreUseResources.Core
             long end = start + workTicks;
             while (Stopwatch.GetTimestamp() < end)
             {
-                if (_stop || !_synthetic) break;
+                if (_stop || !_synthetic || !(_mayBurn?.Invoke() ?? true)) break;
                 burn.Spin(2048);
             }
             long now = Stopwatch.GetTimestamp();
@@ -229,13 +230,14 @@ namespace MoreUseResources.Core
             CancelJobs();
             _wake.Set();
             Thread current = Thread.CurrentThread;
+            long deadline = Environment.TickCount64 + 1500;
             foreach (Thread? t in snapshot)
             {
                 if (t != null && t != current)
                 {
                     // Workers poll the stop flag at least every 100 ms; a job stuck in file IO is
                     // abandoned after the timeout (threads are background threads).
-                    t.Join(1500);
+                    t.Join((int)Math.Max(0, deadline - Environment.TickCount64));
                 }
             }
         }

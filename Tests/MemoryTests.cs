@@ -101,6 +101,24 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void File_copies_and_reserve_share_one_headroom_budget()
+        {
+            var (g, probe, cache, reserve, _) = Make();
+            using (cache)
+            using (reserve)
+            {
+                var settings = new ResourceSettings { RamReserve = true, RamReserveMiB = 64, RamFileCacheMiB = 512 };
+                long headroom = 96 * MiB;
+                probe.Available = settings.RamMinFreeMiB * MiB + MemoryGovernor.MarginBytes + headroom;
+
+                g.Tick(settings, On, 0.25);
+
+                Assert.Equal(64 * MiB, reserve.TotalBytes);
+                Assert.Equal(headroom - reserve.TotalBytes, g.CacheLimitBytes);
+            }
+        }
+
+        [Fact]
         public void Pressure_releases_reserve_before_cache_and_pauses_growth()
         {
             var (g, probe, cache, reserve, clock) = Make();
@@ -120,7 +138,7 @@ namespace MoreUseResources.Tests
             probe.Available = 20L << 30;
             g.Tick(s, On, 0.25);
             Assert.Equal(0, reserve.CommittedBytes);          // growth is held for a while after pressure
-            Assert.Equal(cache.TotalBytes, g.CacheLimitBytes);
+            Assert.Equal(0, g.CacheLimitBytes);
             clock[0] += 11_000;
             g.Tick(s, On, 0.25);
             Assert.True(reserve.CommittedBytes > 0);
@@ -205,6 +223,62 @@ namespace MoreUseResources.Tests
             Assert.Equal(1, cache.DeferredForBudget);
             Assert.Equal(1, cache.Errors);                   // the missing file
             Assert.Equal(2, cache.FilesRead);
+        }
+
+        [Fact]
+        public void Replacing_sources_releases_old_copies_and_rereads_shared_paths()
+        {
+            string path = MakeFile("asset.bin", 1000);
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool);
+            cache.SetSources(new[] { path });
+            PumpUntil(cache, () => cache.PassComplete, true, 4096);
+
+            File.WriteAllBytes(path, new byte[2000]);
+            cache.SetSources(new[] { path });
+
+            Assert.Equal(0, store.TotalBytes);
+            PumpUntil(cache, () => cache.PassComplete, true, 4096);
+            Assert.Equal(2000, store.TotalBytes);
+            Assert.Equal(2, cache.FilesRead);
+        }
+
+        [Fact]
+        public void Asset_discovery_limits_reads_to_known_content_directories_and_extensions()
+        {
+            Directory.CreateDirectory(Path.Combine(_dir, "Defs"));
+            Directory.CreateDirectory(Path.Combine(_dir, "Saves"));
+            string def = MakeFile(Path.Combine("Defs", "Thing.xml"), 8);
+            MakeFile(Path.Combine("Saves", "Player.xml"), 8);
+            MakeFile(Path.Combine("Defs", "Save.rws"), 8);
+            List<string> paths = GameAssetFiles.Discover(new[] { _dir, _dir }, CancellationToken.None, () => true);
+            Assert.Equal(new[] { def }, paths);
+        }
+
+        [Fact]
+        public void Cpu_only_prefetch_can_warm_files_without_growing_or_releasing_existing_copies()
+        {
+            string first = MakeFile("first.bin", 1000);
+            string second = MakeFile("second.bin", 1000);
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool);
+            cache.SetSources(new[] { first, second });
+            PumpUntil(cache, () => cache.PassComplete, true, 1000);
+            Assert.Equal(1000, store.TotalBytes);
+            Assert.Equal(1, cache.FilesRead);
+
+            cache.Pump(true, true, 0, allowCopies: false);
+            Assert.True(SpinWait.SpinUntil(() => cache.PassComplete, 3000));
+
+            Assert.Equal(1000, store.TotalBytes);
+            Assert.Equal(2, cache.FilesRead);
+            cache.Pump(true, true, 2000);
+            PumpUntil(cache, () => cache.PassComplete, true, 2000);
+            Assert.Equal(2000, store.TotalBytes);
         }
 
         [Fact]

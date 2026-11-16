@@ -32,7 +32,7 @@ namespace MoreUseResources.Core
 
         public long CommittedBytes => Interlocked.Read(ref _committed);
         public long PendingBytes => Interlocked.Read(ref _pending);
-        public long TotalBytes => CommittedBytes + PendingBytes;
+        public long TotalBytes { get { lock (_gate) { return _committed + _pending; } } }
         public long AllocationFailures => Interlocked.Read(ref _allocFailures);
 
         public int BlockCount
@@ -117,10 +117,12 @@ namespace MoreUseResources.Core
         public long Release(long bytes)
         {
             if (bytes <= 0) return 0;
-            List<Block> freed = new List<Block>();
+            List<Block> freed;
             long total = 0;
             lock (_gate)
             {
+                if (_blocks.Count == 0) return 0;
+                freed = new List<Block>();
                 while (total < bytes && _blocks.Count > 0)
                 {
                     Block b = _blocks[_blocks.Count - 1];

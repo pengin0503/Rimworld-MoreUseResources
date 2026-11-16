@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>More Use Resources</name>
+  <author>pengin0503</author>
+  <packageId>pengin0503.moreuseresources</packageId>
+  <supportedVersions><li>1.7</li></supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/2009463077</steamWorkshopUrl>
+    </li>
+  </modDependencies>
+  <loadAfter><li>brrainz.harmony</li></loadAfter>
+  <description>Per-phase CPU workers, file prefetching, bounded RAM use and optional Waylith texture prewarming. Configure in Mod settings.</description>
+  <url>https://github.com/pengin0503/Rimworld-MoreUseResources</url>
+</ModMetaData>

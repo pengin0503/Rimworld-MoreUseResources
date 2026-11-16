@@ -192,6 +192,17 @@ namespace MoreUseResources.Tests
             Assert.Equal(4096 * MiB / 100 * 75, info.CapBytes(99, 0));
         }
 
+        [Theory]
+        [InlineData(true, 1024, 6000, true)]
+        [InlineData(false, 1024, 6000, false)]
+        [InlineData(true, 2048, 6000, false)]
+        [InlineData(true, 1024, 6130, false)]
+        public void Live_texture_upload_needs_driver_headroom(bool driverReported, int width, int usageMiB, bool expected)
+        {
+            var info = new VramInfo(usageMiB * MiB, 10_240 * MiB, driverReported);
+            Assert.Equal(expected, info.CanPrewarmTexture(width, 1024, 60, 2048 * MiB));
+        }
+
         [Fact]
         public void Time_budget_limits_work_per_frame()
         {
@@ -239,7 +250,7 @@ namespace MoreUseResources.Tests
             Run(w, 10);
             Assert.Equal(49, w.TrackedOurs);
             w.BeginRelease();
-            Run(w, 5);
+            do { w.Step(0.016, 60, 2048 * MiB, 50); } while (w.State == VramState.Releasing);
             Assert.Equal(49, b.Evictions);
             Assert.True(b.All[0].Resident);
             Assert.Equal(0, w.TrackedOurs);
@@ -306,6 +317,50 @@ namespace MoreUseResources.Tests
 
     public class ControllerTests
     {
+        private sealed class CallbackProbe : IMemoryProbe
+        {
+            public Action? DuringSample;
+
+            public MemoryStatus Read()
+            {
+                DuringSample?.Invoke();
+                return new MemoryStatus(32L << 30, 20L << 30, true);
+            }
+        }
+
+        [Fact]
+        public void Release_during_a_control_tick_does_not_leave_new_reservations()
+        {
+            var probe = new CallbackProbe();
+            var settings = new ResourceSettings { RamReserve = true, RamReserveMiB = 128 };
+            using var controller = new ResourceController(probe, 4, initial: settings);
+            controller.ControlTick(true, 0.25);
+            Assert.True(controller.GetStatus().ReserveHeldBytes > 0);
+            probe.DuringSample = () =>
+            {
+                controller.Manual = ManualMode.Paused;
+                controller.RequestReleaseMemory();
+            };
+
+            controller.ControlTick(true, 0.25);
+
+            Assert.Equal(0, controller.GetStatus().ReserveHeldBytes);
+        }
+
+        [Fact]
+        public void A_save_starting_after_the_phase_sample_blocks_reservation_growth()
+        {
+            var probe = new CallbackProbe();
+            bool saving = false;
+            var settings = new ResourceSettings { RamReserve = true, RamReserveMiB = 128 };
+            using var controller = new ResourceController(probe, 4, () => saving, settings);
+            probe.DuringSample = () => saving = true;
+
+            controller.ControlTick(true, 0.25);
+
+            Assert.Equal(0, controller.GetStatus().ReserveHeldBytes);
+        }
+
         [Fact]
         public void End_to_end_phase_changes_start_and_stop_work()
         {

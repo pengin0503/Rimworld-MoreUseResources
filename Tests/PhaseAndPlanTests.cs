@@ -131,6 +131,16 @@ namespace MoreUseResources.Tests
         }
 
         [Fact]
+        public void Run_now_respects_focus_and_world_view_rules()
+        {
+            var s = new ResourceSettings { AllowWhenUnfocused = false, AllowInWorldView = false };
+            Assert.Equal(ActivationReason.Unfocused, ActivationPlanner.PlanOne(s,
+                P(GamePhase.PlayingNormal, PhaseModifiers.Unfocused), ManualMode.ForceRun, ResourceKind.Cpu).Reason);
+            Assert.Equal(ActivationReason.WorldViewOff, ActivationPlanner.PlanOne(s,
+                P(GamePhase.PlayingNormal, PhaseModifiers.WorldView), ManualMode.ForceRun, ResourceKind.Ram).Reason);
+        }
+
+        [Fact]
         public void Modifiers_gate_and_boost()
         {
             var s = new ResourceSettings { AllowWhenUnfocused = false, AllowInWorldView = false, IdleBoost = true };
