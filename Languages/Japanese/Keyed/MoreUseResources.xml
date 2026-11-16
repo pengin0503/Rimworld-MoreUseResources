@@ -52,6 +52,8 @@
   <MUR_Synthetic>追加のCPU負荷を生成（実験機能・ゲームが重くなる場合あり）</MUR_Synthetic>
   <MUR_Duty>CPU負荷生成の稼働率 {0}%</MUR_Duty>
   <MUR_PrefetchEnabled>有効なMODのアセットをOSのファイルキャッシュへ先読み</MUR_PrefetchEnabled>
+  <MUR_PrefetchRefreshInterval>OSキャッシュへの再先読み間隔 {0} 分（0で停止）</MUR_PrefetchRefreshInterval>
+  <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
