@@ -30,6 +30,7 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.IdleBoost, "idleBoost", Defaults.IdleBoost);
         Scribe_Values.Look(ref Value.IdleSeconds, "idleSeconds", Defaults.IdleSeconds);
         Scribe_Values.Look(ref Value.FrameGuardMs, "frameGuardMs", Defaults.FrameGuardMs);
+        Scribe_Values.Look(ref Value.RecordLoadTiming, "recordLoadTiming", Defaults.RecordLoadTiming);
 
         Scribe_Values.Look(ref Value.CpuEnabled, "cpuEnabled", Defaults.CpuEnabled);
         Scribe_Values.Look(ref Value.CpuMaxWorkers, "cpuMaxWorkers", Defaults.CpuMaxWorkers);

@@ -54,6 +54,7 @@ internal sealed class ResourceRuntime
                 prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeUpdate), flags)),
                 postfix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterUpdate), flags)));
             Volatile.Write(ref instance, this);
+            if (settings.RecordLoadTiming) LoadTiming.Install(harmony);
             Application.quitting += Stop;
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             controller.Start();
@@ -168,6 +169,7 @@ internal sealed class ResourceRuntime
             };
             controller.PublishSignals(signals);
             if (!endOfUpdate) return;
+            if (loaded && !queuedLongEvent && settings.RecordLoadTiming) LoadTiming.CompleteOnce();
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
             controller.ReportFrame(frameIntervalMs);

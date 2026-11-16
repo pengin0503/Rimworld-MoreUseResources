@@ -64,6 +64,7 @@ public sealed class MoreUseResourcesMod : Mod
         if (status.ControlError != null || status.WorkerLastError != null)
             list.Label("MUR_BackgroundError".Translate());
 
+        list.Label("MUR_LoadTimingStatus".Translate(LoadTiming.Recorder.Report()));
         list.Label("MUR_CurrentPhase".Translate(PhaseName(status.Plan.Phase.Phase), ModeName(runtime.Manual)));
         list.Label("MUR_CpuStatus".Translate(Reason(status.Plan.Cpu), status.WorkersActive, status.PendingJobs));
         list.Label("MUR_CpuWorkerUsage".Translate((status.WorkerCpuShare * 100).ToString("F1"), status.JobsCompleted, status.JobsFailed));
@@ -126,6 +127,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_IdleBoost", ref s.IdleBoost);
         Slider(list, "MUR_IdleSeconds", ref s.IdleSeconds, 10, 3600, 10);
         Slider(list, "MUR_FrameGuard", ref s.FrameGuardMs, 0, 500, 10);
+        Toggle(list, "MUR_RecordLoadTiming", ref s.RecordLoadTiming);
     }
 
     private void DrawPhases(Listing_Standard list, ResourceSettings s)

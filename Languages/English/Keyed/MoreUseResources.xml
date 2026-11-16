@@ -60,6 +60,8 @@
   <MUR_ResidentPackStatus>Resident asset packs {0}/{1} · {2} MiB mapped · passes {3} · over limit {4} · errors {5}</MUR_ResidentPackStatus>
   <MUR_ResidentPacks>Experimental: keep Assets.zip packs resident in RAM (needs file prefetch; maps the same read-only files the engine maps; no speed-up is guaranteed)</MUR_ResidentPacks>
   <MUR_ResidentPackLimit>Resident asset pack limit (MiB)</MUR_ResidentPackLimit>
+  <MUR_LoadTimingStatus>Load timing: {0}</MUR_LoadTimingStatus>
+  <MUR_RecordLoadTiming>Record how long the load stages take (written to the log; applies on next start)</MUR_RecordLoadTiming>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>

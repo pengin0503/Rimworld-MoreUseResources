@@ -58,6 +58,8 @@ namespace MoreUseResources.Core
         /// <summary>Average frame time (ms) above which main-thread work and synthetic load back off. 0 disables the guard.</summary>
         public int FrameGuardMs = 66;
         public bool ShowOverlay = false;
+        /// <summary>Time the game's load stages after this mod starts. Read at launch; a change applies on the next start.</summary>
+        public bool RecordLoadTiming = true;
 
         // ---- per phase ----
         public bool[] CpuPhases = new bool[PhaseCount];

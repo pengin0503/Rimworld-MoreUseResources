@@ -60,6 +60,8 @@
   <MUR_ResidentPackStatus>RAM常駐アセットパック {0}/{1} 個 ／ マップ済み {2} MiB ／ 巡回 {3} 回 ／ 上限超過 {4} 個 ／ エラー {5} 件</MUR_ResidentPackStatus>
   <MUR_ResidentPacks>実験機能：Assets.zip をRAMに常駐させる（ファイル先読みが必要。エンジンと同じ読み取り専用ファイルをマップします。高速化は保証されません）</MUR_ResidentPacks>
   <MUR_ResidentPackLimit>RAM常駐アセットパックの上限 (MiB)</MUR_ResidentPackLimit>
+  <MUR_LoadTimingStatus>ロード工程の所要時間: {0}</MUR_LoadTimingStatus>
+  <MUR_RecordLoadTiming>ロード工程の所要時間を記録する（ログに出力。変更は次回起動から有効）</MUR_RecordLoadTiming>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
