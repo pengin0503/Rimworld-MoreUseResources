@@ -98,6 +98,8 @@ namespace MoreUseResources.Core
         public int GpuKeepFreeMiB = 2048;
         /// <summary>Main-thread milliseconds per frame, in tenths (20 = 2.0 ms).</summary>
         public int GpuFrameBudgetTenthMs = 20;
+        /// <summary>How often to recheck Waylith's real textures after a full pass; 0 disables maintenance.</summary>
+        public int GpuRefreshSeconds = 60;
         public bool GpuReserve = false;
         public int GpuReserveMiB = 2048;
 
@@ -192,6 +194,7 @@ namespace MoreUseResources.Core
             GpuTargetPercent = Math.Clamp(GpuTargetPercent, 10, MaxGpuTargetPercent);
             GpuKeepFreeMiB = Math.Clamp(GpuKeepFreeMiB, 512, 65536);
             GpuFrameBudgetTenthMs = Math.Clamp(GpuFrameBudgetTenthMs, 2, 80);
+            GpuRefreshSeconds = Math.Clamp(GpuRefreshSeconds, 0, 600);
             GpuReserveMiB = Math.Clamp(GpuReserveMiB, 64, 65536);
         }
 
