@@ -81,6 +81,8 @@ public sealed class MoreUseResourcesMod : Mod
 
         TexturePrewarm gpu = runtime.Gpu;
         list.Label("MUR_GpuStatus".Translate(gpu.StatusKey.Translate().ToString(), gpu.Uploaded));
+        list.Label("MUR_GpuQueueStatus".Translate(gpu.DeferredCount, gpu.DroppedDeferred,
+            gpu.RejectedTextures, gpu.FailedUploads));
         if (gpu.Memory.DriverReported)
             list.Label("MUR_GpuBudgetStatus".Translate(InMiB(gpu.Memory.UsageBytes), InMiB(gpu.Memory.BudgetBytes)));
 
