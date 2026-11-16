@@ -7,6 +7,7 @@
   <MUR_CpuStatus>CPU {0} · Worker slots {1} · Queued jobs {2}</MUR_CpuStatus>
   <MUR_RamStatus>RAM {0} · File copies {1} MiB · Reserved {2} MiB</MUR_RamStatus>
   <MUR_PrefetchStatus>Prefetch {0}/{1} · Read {2} files ({3} MiB) · Errors {4} · Budget skips {5}</MUR_PrefetchStatus>
+  <MUR_AuditStatus>Asset audit {0}/{1} · Exact duplicates {2} ({3} MiB) · Hashed {4} MiB · Errors {5} · Skipped {6}</MUR_AuditStatus>
   <MUR_MemoryStatus>Game working set {0} MiB · OS available {1} MiB · Governor {2}</MUR_MemoryStatus>
   <MUR_NoMemoryProbe>Waiting for an OS memory sample. RAM growth and file prefetch require a valid sample.</MUR_NoMemoryProbe>
   <MUR_GpuStatus>GPU {0} · Prewarmed textures {1}</MUR_GpuStatus>
@@ -38,6 +39,7 @@
   <MUR_PhaseSaving>Saving / autosaving</MUR_PhaseSaving>
   <MUR_PhaseQuitting>Quitting</MUR_PhaseQuitting>
   <MUR_CpuEnabled>Allow CPU workers</MUR_CpuEnabled>
+  <MUR_CpuIndexAssets>SHA-256 audit enabled mod assets and index exact duplicates on CPU workers</MUR_CpuIndexAssets>
   <MUR_Workers>Maximum CPU workers {0} (0 = automatic)</MUR_Workers>
   <MUR_Synthetic>Generate extra CPU load (experimental, can slow the game)</MUR_Synthetic>
   <MUR_Duty>Synthetic CPU duty cycle {0}%</MUR_Duty>
