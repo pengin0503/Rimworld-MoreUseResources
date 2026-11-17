@@ -15,6 +15,10 @@ namespace MoreUseResources.Core
         public double FrameAverageMs;
 
         public int WorkerThreads;
+        /// <summary>The user's or automatic worker limit before phase intensity. Other mods never lower it.</summary>
+        public int WorkerCap;
+        public ExternalParallelism External = ExternalParallelism.None;
+        public WorkUnitYields Yields = WorkUnitYields.None;
         public int WorkersActive;
         public bool SyntheticLoad;
         public int PendingJobs;
@@ -39,6 +43,10 @@ namespace MoreUseResources.Core
         public long FileBytesRead;
         public long FileErrors;
         public int FilesDeferredForBudget;
+        /// <summary>Files warmed in the OS cache although their private copy had no budget.</summary>
+        public long FilesWarmedWithoutCopy;
+        /// <summary>Compiled shader records of the engine included in the prefetch list.</summary>
+        public int ShaderCacheFiles;
         public bool FilePassComplete;
         public int FileDiscoveryPasses;
         /// <summary>Engine texture-cache and asset packs included in the prefetch list.</summary>
@@ -100,6 +108,9 @@ namespace MoreUseResources.Core
         private readonly Func<long> _assetClockMs;
         private readonly Func<CancellationToken, IReadOnlyList<string>>? _packDiscovery;
         private int _enginePackFiles;
+        private int _shaderCacheFiles;
+        private ExternalParallelism _external = ExternalParallelism.None;
+        private WorkUnitYields _yields = WorkUnitYields.None;
         private readonly object _sourceGate = new object();
         private HashSet<string>? _knownSources;
         private HashSet<string>? _knownLooseSources;
@@ -241,6 +252,17 @@ namespace MoreUseResources.Core
         public int AdaptiveWorkerPercent => Volatile.Read(ref _adaptivePercent);
         public void SetAdaptiveWorkerPercent(int percent) => Volatile.Write(ref _adaptivePercent, percent);
         public void ClearJitSources() => Volatile.Write(ref _jit, null);
+
+        /// <summary>
+        /// Game thread: what the other performance mods are doing. Kept for the status panel only;
+        /// it never changes how many workers this mod runs.
+        /// </summary>
+        public void SetExternalParallelism(ExternalParallelism external) =>
+            Volatile.Write(ref _external, external ?? ExternalParallelism.None);
+
+        /// <summary>Game thread: the work units another mod already performs. Only those are skipped.</summary>
+        public void SetWorkUnitYields(WorkUnitYields yields) =>
+            Volatile.Write(ref _yields, yields ?? WorkUnitYields.None);
         public bool ExtraMemoryAvailable => _extraMemoryAvailable;
         public JitProgress Jit => Volatile.Read(ref _jit)?.Progress ?? default;
 
@@ -260,6 +282,7 @@ namespace MoreUseResources.Core
             var looseSet = new HashSet<string>(list, comparer);
             var prefetch = new List<string>();
             var assetPacks = new List<string>();
+            int shaderFiles = 0;
             if (enginePacks != null)
             {
                 var packSet = new HashSet<string>(comparer);
@@ -267,6 +290,11 @@ namespace MoreUseResources.Core
                 {
                     if (string.IsNullOrEmpty(pack) || looseSet.Contains(pack) || !packSet.Add(pack)) continue;
                     prefetch.Add(pack);
+                    if (pack.EndsWith(EnginePackFiles.ShaderCacheExtension, StringComparison.OrdinalIgnoreCase))
+                    {
+                        shaderFiles++;
+                        continue;
+                    }
                     // Only the read-only asset packs may be mapped; the engine rewrites its cache packs.
                     if (string.Equals(Path.GetFileName(pack), EnginePackFiles.AssetPackFileName, StringComparison.OrdinalIgnoreCase))
                         assetPacks.Add(pack);
@@ -281,7 +309,8 @@ namespace MoreUseResources.Core
                 // cached RAM copies or clear audit results for an identical set.
                 if (_knownSources != null && _knownSources.SetEquals(set)) return;
                 _knownSources = set;
-                Volatile.Write(ref _enginePackFiles, packCount);
+                Volatile.Write(ref _enginePackFiles, packCount - shaderFiles);
+                Volatile.Write(ref _shaderCacheFiles, shaderFiles);
                 // Engine packs must always be OS-cache-only, even when RamHoldCopies is
                 // enabled. Some ZIPs exceed the 1 GiB native-copy limit.
                 _fileCache.SetSources(prefetch, prefetchOnly: prefetch.GetRange(0, packCount));
@@ -322,10 +351,14 @@ namespace MoreUseResources.Core
             int workers = plan.Cpu.Active ? Math.Max(1, (int)Math.Round(maxWorkers * plan.Cpu.Intensity)) : 0;
             bool synthetic = plan.Cpu.Active && s.CpuSyntheticLoad;
             if (s.AdaptiveWorkers) workers = AdaptiveWorkerBudget.Scale(workers, AdaptiveWorkerPercent);
+            // Other mods' parallel work and the engine's shared job pool are diagnostics, not a cap.
+            workers = CompatibilityPolicy.LimitWorkers(workers, phase.Phase, Volatile.Read(ref _external));
+            WorkUnitYields yields = Volatile.Read(ref _yields);
             if (throttled) workers = synthetic ? Math.Max(1, workers / 2) : Math.Min(1, workers);
             bool holdCopies = s.RamEnabled && s.RamHoldCopies;
             bool fileWork = s.RamFileCache && (plan.Ram.Active || plan.Cpu.Active);
             bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled
+                && !yields.IsYielded(VanillaWorkUnit.AssetAudit)
                 && (!s.AdaptiveWorkers || AdaptiveWorkerPercent > 50);
             bool anyFileWork = fileWork || auditWork;
             if (!anyFileWork) _assetScanAllowed = false;
@@ -333,6 +366,7 @@ namespace MoreUseResources.Core
             if (!auditWork) _assetAudit.Suspend();
             var jit = Volatile.Read(ref _jit);
             bool jitWork = jit != null && s.CpuJitPrewarm && !jit.Progress.Complete
+                && !yields.IsYielded(VanillaWorkUnit.JitPrewarm)
                 && HardwareWork.MayPrepare(phase.Phase, plan.Cpu.Active, throttled, _extraMemoryAvailable);
             if (!anyFileWork && !synthetic && !jitWork) workers = 0;
             if (anyFileWork && workers == 0) workers = 1; // RAM-only prefetch still needs a service worker
@@ -403,7 +437,8 @@ namespace MoreUseResources.Core
         private bool MayRunJit()
         {
             ResourceSettings s = _settings;
-            if (_stopping || !s.CpuJitPrewarm || SavingInProgress() || !_extraMemoryAvailable) return false;
+            if (_stopping || !s.CpuJitPrewarm || SavingInProgress() || !_extraMemoryAvailable
+                || Volatile.Read(ref _yields).IsYielded(VanillaWorkUnit.JitPrewarm)) return false;
             RawGameSignals signals;
             lock (_gate) { signals = _signals; }
             PhaseSnapshot phase = PhaseResolver.Resolve(signals, s.IdleBoost ? s.IdleSeconds : 0);
@@ -572,6 +607,9 @@ namespace MoreUseResources.Core
                 FrameThrottled = _throttled,
                 FrameAverageMs = _frameGuard.AverageMs,
                 WorkerThreads = _pool.MaxThreads,
+                WorkerCap = _settings.EffectiveMaxWorkers(_logicalProcessors),
+                External = Volatile.Read(ref _external),
+                Yields = Volatile.Read(ref _yields),
                 WorkersActive = _pool.ActiveWorkers,
                 SyntheticLoad = _pool.SyntheticLoad,
                 PendingJobs = _pool.PendingJobs,
@@ -594,6 +632,8 @@ namespace MoreUseResources.Core
                 FileBytesRead = _fileCache.BytesRead,
                 FileErrors = _fileCache.Errors,
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
+                FilesWarmedWithoutCopy = _fileCache.BudgetFallbackWarms,
+                ShaderCacheFiles = Volatile.Read(ref _shaderCacheFiles),
                 FilePassComplete = _fileCache.PassComplete,
                 FileDiscoveryPasses = Volatile.Read(ref _assetDiscoveryPasses),
                 EnginePackFiles = Volatile.Read(ref _enginePackFiles),

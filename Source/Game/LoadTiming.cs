@@ -20,8 +20,12 @@ internal static class LoadTiming
     internal static readonly LoadStageRecorder Recorder = new();
     private static readonly long ModStartStamp = Stopwatch.GetTimestamp();
 
-    internal static void Install(Harmony harmony)
+    /// <summary>The two stages WOWGAG's XML reuse replaces. They are neither patched nor counted when left to it.</summary>
+    internal static bool XmlStagesYielded { get; private set; }
+
+    internal static void Install(Harmony harmony, bool yieldXmlLoadStages = false)
     {
+        XmlStagesYielded = yieldXmlLoadStages;
         try
         {
             using Process process = Process.GetCurrentProcess();
@@ -37,6 +41,8 @@ internal static class LoadTiming
         foreach (MethodBase? method in Targets())
         {
             if (method == null) continue;
+            if (yieldXmlLoadStages && method.Name is nameof(LoadedModManager.LoadModXML)
+                or nameof(LoadedModManager.CombineIntoUnifiedXML)) continue;
             try
             {
                 harmony.Patch(method, prefix: prefix, finalizer: finalizer);

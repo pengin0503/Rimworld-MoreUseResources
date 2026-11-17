@@ -9,8 +9,10 @@ namespace MoreUseResources.Core;
 
 /// <summary>Read-only startup hints for the launcher, written after the game establishes the active cache.</summary>
 public sealed record StartupPackManifest(int Schema, string GameDirectory, string CacheDirectory,
-    bool GpuEncode, string ModsConfigPath, string ModsConfigSha256, IReadOnlyList<StartupPackEntry> Packs)
+    bool GpuEncode, string ModsConfigPath, string ModsConfigSha256, IReadOnlyList<StartupPackEntry> Packs,
+    string? ShaderCacheDirectory = null, IReadOnlyList<StartupPackEntry>? ShaderCache = null)
 {
+    public const int MaxShaderCacheEntries = 512;
     public const string FileName = "MoreUseResources-StartupPacks.json";
 
     public static string? ReadConfigHash(string path)
@@ -21,7 +23,8 @@ public sealed record StartupPackManifest(int Schema, string GameDirectory, strin
 
     public static StartupPackWriteResult Save(string path, string gameDirectory, string cacheDirectory,
         string modsConfigPath, IReadOnlyList<string> sources, CancellationToken token, Func<bool>? mayPublish = null,
-        IReadOnlyList<string>? mountedPacks = null, string? expectedConfigHash = null)
+        IReadOnlyList<string>? mountedPacks = null, string? expectedConfigHash = null,
+        IReadOnlyList<string>? shaderCacheFiles = null)
     {
         var entries = new List<StartupPackEntry>();
         var mounted = new HashSet<string>(mountedPacks ?? Array.Empty<string>(),
@@ -38,6 +41,25 @@ public sealed record StartupPackManifest(int Schema, string GameDirectory, strin
                         StringComparison.OrdinalIgnoreCase)));
         }
 
+        // Compiled shader records are optional hints: all from one directory, exact engine names only.
+        var shaders = new List<StartupPackEntry>();
+        string? shaderDirectory = null;
+        if (shaderCacheFiles != null)
+        {
+            foreach (string source in shaderCacheFiles)
+            {
+                if (token.IsCancellationRequested) return StartupPackWriteResult.Discarded;
+                if (shaders.Count == MaxShaderCacheEntries) break;
+                var file = new FileInfo(source);
+                if (!file.Exists || file.Length <= 0 || (file.Attributes & FileAttributes.ReparsePoint) != 0
+                    || !EnginePackFiles.IsShaderCacheRecord(file.Name) || file.DirectoryName == null) continue;
+                shaderDirectory ??= file.DirectoryName;
+                if (!string.Equals(shaderDirectory, file.DirectoryName, StringComparison.Ordinal)) continue;
+                shaders.Add(new StartupPackEntry(file.FullName, file.Length, file.LastWriteTimeUtc.Ticks.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture), false));
+            }
+        }
+
         if (token.IsCancellationRequested) return StartupPackWriteResult.Discarded;
         if (entries.Count == 0) return StartupPackWriteResult.Retry;
         string? configHash = ReadConfigHash(modsConfigPath);
@@ -45,7 +67,7 @@ public sealed record StartupPackManifest(int Schema, string GameDirectory, strin
             return StartupPackWriteResult.Discarded;
         var manifest = new StartupPackManifest(1, Path.GetFullPath(gameDirectory), Path.GetFullPath(cacheDirectory),
             Path.GetFileName(cacheDirectory).EndsWith("-gpu", StringComparison.Ordinal), Path.GetFullPath(modsConfigPath),
-            configHash, entries);
+            configHash, entries, shaders.Count == 0 ? null : shaderDirectory, shaders.Count == 0 ? null : shaders);
         string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

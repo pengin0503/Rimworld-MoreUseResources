@@ -50,6 +50,18 @@ internal sealed class ResourceRuntime
     private readonly bool recordLoadTimingOnLaunch;
     private ResourceSettings settings;
     private PackSourceSnapshot? packSources;
+    private readonly ExternalFeatureState wowgagXmlReuse;
+    private readonly PerformanceModCompatibility compatibility;
+    private readonly TextureDemandSaveSchedule demandSaves = new();
+    private bool patchOwnersScanned;
+    private string? demandFingerprint;
+    private PackSourceSnapshot? demandSource;
+    private int demandVersionSeen;
+    private long nextDemandSaveCheck;
+    internal PerformanceModCompatibility Compatibility => compatibility;
+    internal bool XmlYieldedToWowgag => CompatibilityPolicy.YieldXmlToWowgag(wowgagXmlReuse);
+    internal ExternalFeatureState WowgagXmlReuse => wowgagXmlReuse;
+    internal int DemandHistorySaves;
 
     private sealed class PackSourceSnapshot
     {
@@ -63,6 +75,10 @@ internal sealed class ResourceRuntime
         public readonly string ManifestPath;
         public readonly string ModsConfigPath;
         public readonly string[]? MountedPacks;
+        /// <summary>Mods in load order as "packageId|root identity"; plain strings for worker threads.</summary>
+        public List<string> ModIdentities = new();
+        public string GameBuild = string.Empty;
+        public string DemandHistoryPath = string.Empty;
 
         public PackSourceSnapshot(string? cacheDataPath, List<string> roots, List<string> folders, string[] extraFiles,
             string? activeCacheRoot, string? installId, string gameDirectory, string manifestPath, string modsConfigPath, string[]? mountedPacks)
@@ -96,6 +112,9 @@ internal sealed class ResourceRuntime
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
         recordLoadTimingOnLaunch = settings.RecordLoadTiming;
+        // Read once, before the game's XML stages: WOWGAG's reuse decides whether this mod stays out of them.
+        wowgagXmlReuse = PerformanceModCompatibility.ReadWowgagXmlReuse();
+        compatibility = new PerformanceModCompatibility(wowgagXmlReuse);
         // Mod constructors run before all mods finish loading. Defer asset-list
         // capture until the first fully loaded frame on the game thread.
         controller = new ResourceController(new SystemMemoryProbe(), Environment.ProcessorCount,
@@ -133,8 +152,12 @@ internal sealed class ResourceRuntime
             {
                 Log.Warning("[More Use Resources] Could not observe definition reloads. " + ex.Message);
             }
-            if (recordLoadTimingOnLaunch) LoadTiming.Install(harmony);
-            if (settings.Enabled && settings.CachePatchedXml)
+            bool yieldXml = XmlYieldedToWowgag;
+            if (recordLoadTimingOnLaunch) LoadTiming.Install(harmony, yieldXml);
+            if (yieldXml)
+                Log.Message("[More Use Resources] WOWGAG's XML reuse is " + wowgagXmlReuse
+                    + ": LoadModXML and CombineIntoUnifiedXML are not timed and the patched XML cache is left to WOWGAG.");
+            else if (settings.Enabled && settings.CachePatchedXml)
             {
                 try { PatchedXmlCache.Install(harmony); }
                 catch (Exception ex) { Log.Warning("[More Use Resources] Could not install patched XML cache. " + ex.Message); }
@@ -245,7 +268,8 @@ internal sealed class ResourceRuntime
             experiments.UpdateCodec(settings.Enabled && settings.UncompressedTextureCache);
             if (frameStart != 0)
                 experiments.Update(settings, phase, activation, ready, loaded,
-                    settings.FrameGuardMs > 0 && controller.FrameThrottled, controller.ExtraMemoryAvailable, frameStart);
+                    settings.FrameGuardMs > 0 && controller.FrameThrottled, controller.ExtraMemoryAvailable, frameStart,
+                    compatibility.Yields);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -268,9 +292,116 @@ internal sealed class ResourceRuntime
         };
     }
 
-    private static List<string> DiscoverPacks(PackSourceSnapshot snapshot, CancellationToken token) =>
-        EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
+    private static List<string> DiscoverPacks(PackSourceSnapshot snapshot, CancellationToken token, bool withShaders = true)
+    {
+        List<string> packs = EnginePackFiles.Discover(snapshot.CacheDataPath, snapshot.Roots, snapshot.Folders,
             snapshot.ExtraFiles, token, snapshot.ActiveCacheRoot, snapshot.InstallId, snapshot.MountedPacks);
+        // Compiled shader records follow the packs: the engine reads them with ordinary file reads.
+        if (withShaders) packs.AddRange(EnginePackFiles.DiscoverShaderCache(snapshot.CacheDataPath, token));
+        return packs;
+    }
+
+    /// <summary>
+    /// Loads last session's texture ranking on a worker and hands it to the main-thread prewarm.
+    /// The fingerprint ties it to this mod list, game build, cache layout and pack contents.
+    /// </summary>
+    private void QueueDemandHistoryLoad(PackSourceSnapshot snapshot)
+    {
+        Volatile.Write(ref demandFingerprint, null);
+        demandSource = snapshot;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                string? fingerprint = DemandFingerprint(snapshot);
+                if (fingerprint == null || !ReferenceEquals(snapshot, Volatile.Read(ref packSources))
+                    || Volatile.Read(ref stopped) != 0) return;
+                IReadOnlyList<TextureDemandSample> stored = TextureDemandHistory.Load(snapshot.DemandHistoryPath, fingerprint);
+                if (!ReferenceEquals(snapshot, Volatile.Read(ref packSources))) return;
+                Volatile.Write(ref demandFingerprint, fingerprint);
+                if (stored.Count > 0) gpu.OfferHistory(stored);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // No usable history: the normal scan order applies.
+            }
+        });
+    }
+
+    private static string? DemandFingerprint(PackSourceSnapshot snapshot)
+    {
+        if (snapshot.ActiveCacheRoot == null || snapshot.ModIdentities.Count == 0) return null;
+        var packs = new List<(string Identity, long Bytes, long WriteTicks)>();
+        foreach (string path in DiscoverPacks(snapshot, CancellationToken.None, withShaders: false))
+        {
+            var file = new FileInfo(path);
+            if (!file.Exists) return null;
+            packs.Add((TextureDemandHistory.PathIdentity(file.FullName), file.Length, file.LastWriteTimeUtc.Ticks));
+        }
+        if (packs.Count == 0) return null;
+        string root = Path.TrimEndingDirectorySeparator(snapshot.ActiveCacheRoot);
+        string layout = Path.GetFileName(Path.GetDirectoryName(root) ?? string.Empty) + "/" + Path.GetFileName(root)
+            + "|" + snapshot.InstallId;
+        return TextureDemandHistory.Fingerprint(snapshot.ModIdentities, snapshot.GameBuild, layout, packs);
+    }
+
+    /// <summary>Writes the observed ranking at most once a minute, never while saving or stopping.</summary>
+    private void QueueDemandHistorySave(long now)
+    {
+        if (now < nextDemandSaveCheck) return;
+        nextDemandSaveCheck = now + 5000;
+        PackSourceSnapshot? snapshot = Volatile.Read(ref packSources);
+        string? fingerprint = Volatile.Read(ref demandFingerprint);
+        IReadOnlyList<TextureDemandSample>? samples = gpu.DemandSamples;
+        if (snapshot == null || fingerprint == null || samples == null || !ReferenceEquals(snapshot, demandSource)
+            || !settings.Enabled || !settings.GpuEnabled || !settings.GpuDemandPriority
+            || gpu.DemandSamplesVersion == demandVersionSeen || Volatile.Read(ref savingDepth) > 0) return;
+        if (!demandSaves.TryBegin(now, samples)) return;
+        demandVersionSeen = gpu.DemandSamplesVersion;
+        if (ThreadPool.QueueUserWorkItem(_ =>
+        {
+            bool written = false;
+            try
+            {
+                // A reload, a save or shutdown that started meanwhile makes this ranking stale.
+                if (Volatile.Read(ref stopped) == 0 && Volatile.Read(ref savingDepth) == 0
+                    && ReferenceEquals(snapshot, Volatile.Read(ref packSources)))
+                {
+                    TextureDemandHistory.Save(snapshot.DemandHistoryPath, fingerprint, samples);
+                    written = true;
+                    Interlocked.Increment(ref DemandHistorySaves);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warning("[More Use Resources] Could not save the texture demand history. " + ex.Message);
+            }
+            finally { demandSaves.Complete(written); }
+        })) return;
+        demandSaves.Complete(false);
+    }
+
+    private void UpdateCompatibility(long now, bool rescan)
+    {
+        if (rescan || !patchOwnersScanned)
+        {
+            patchOwnersScanned = true;
+            compatibility.RescanPatches();
+        }
+        ExternalParallelism before = compatibility.Parallelism;
+        WorkUnitYields yieldsBefore = compatibility.Yields;
+        if (!compatibility.Poll(now, settings.CpuJitPrewarm && JitYieldedToWowgag)) return;
+        controller.SetExternalParallelism(compatibility.Parallelism);
+        controller.SetWorkUnitYields(compatibility.Yields);
+        if (!PerformanceModCompatibility.Notable(before, compatibility.Parallelism) && yieldsBefore.SameAs(compatibility.Yields))
+            return;
+        ExternalParallelism state = compatibility.Parallelism;
+        var yielded = new List<string>();
+        foreach (var pair in compatibility.Yields.All()) yielded.Add(pair.Key + "=" + pair.Value);
+        Log.Message("[More Use Resources] Other performance mods: WOWGAG parallel " + state.Wowgag
+            + ", Overclock parallel " + state.Overclock + ", Axen path grid " + state.AxenPathGrid
+            + ". Own worker limit unchanged. Left to their owner: " + (yielded.Count == 0 ? "nothing" : string.Join(", ", yielded)) + ".");
+    }
 
     private void QueueStartupManifest(long now)
     {
@@ -294,13 +425,15 @@ internal sealed class ResourceRuntime
             bool retry = false;
             try
             {
-                List<string> packs = DiscoverPacks(snapshot, CancellationToken.None);
+                List<string> packs = DiscoverPacks(snapshot, CancellationToken.None, withShaders: false);
                 retry = StartupPackManifest.Save(snapshot.ManifestPath, snapshot.GameDirectory,
                     snapshot.ActiveCacheRoot, snapshot.ModsConfigPath, packs, CancellationToken.None,
                     () => exportStartupPacks && Volatile.Read(ref stopped) == 0
                         && ReferenceEquals(snapshot, Volatile.Read(ref packSources))
                         && ReferenceEquals(schedule, Volatile.Read(ref manifestRetry)),
-                    snapshot.MountedPacks, startupModsConfigHash) == StartupPackWriteResult.Retry;
+                    snapshot.MountedPacks, startupModsConfigHash,
+                    EnginePackFiles.DiscoverShaderCache(snapshot.CacheDataPath, CancellationToken.None))
+                    == StartupPackWriteResult.Retry;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -447,8 +580,14 @@ internal sealed class ResourceRuntime
             if (loaded && !queuedLongEvent && (reloadCompleted || Volatile.Read(ref packSources) == null))
             {
                 var roots = new List<string>();
+                var modIdentities = new List<string>();
                 foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
-                    if (!string.IsNullOrEmpty(pack.RootDir)) roots.Add(Path.GetFullPath(pack.RootDir));
+                {
+                    if (string.IsNullOrEmpty(pack.RootDir)) continue;
+                    string root = Path.GetFullPath(pack.RootDir);
+                    roots.Add(root);
+                    modIdentities.Add(pack.PackageIdPlayerFacing + "|" + TextureDemandHistory.PathIdentity(root));
+                }
                 List<string> folders = CaptureFolders();
                 string resources = Path.Combine(AppContext.BaseDirectory, "Resources");
                 if (Directory.Exists(resources)) roots.Add(Path.GetFullPath(resources));
@@ -457,9 +596,15 @@ internal sealed class ResourceRuntime
                 string gameDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
                 var snapshot = new PackSourceSnapshot(WaylithRuntime.Current?.App.CacheDataPath, roots, folders, extra,
                     cacheRoot, installId, gameDirectory, Path.Combine(GenFilePaths.SaveDataFolderPath, StartupPackManifest.FileName),
-                    GenFilePaths.ModsConfigFilePath, CaptureMountedPacks());
+                    GenFilePaths.ModsConfigFilePath, CaptureMountedPacks())
+                {
+                    ModIdentities = modIdentities,
+                    GameBuild = RimWorld.VersionControl.CurrentVersionStringWithRev,
+                    DemandHistoryPath = Path.Combine(GenFilePaths.SaveDataFolderPath, TextureDemandHistory.FileName),
+                };
                 Volatile.Write(ref packSources, snapshot);
                 controller.SetAssetFolders(folders);
+                QueueDemandHistoryLoad(snapshot);
             }
             if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch) LoadTiming.CompleteOnce();
 
@@ -481,6 +626,8 @@ internal sealed class ResourceRuntime
             {
                 QueueStartupManifest(now);
                 UpdateJitSources(now);
+                UpdateCompatibility(now, reloadCompleted);
+                QueueDemandHistorySave(now);
             }
 
             if (reloadCompleted)

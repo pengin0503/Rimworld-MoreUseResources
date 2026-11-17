@@ -30,6 +30,14 @@ internal sealed class EngineExperiments
     private bool preferQuality;
     private long nextBudgetCheck;
     private VramInfo budget;
+    private readonly VanillaMeshWork meshes = new();
+    private readonly PreparationRotation rotation = new(
+        VanillaWorkUnit.MeshUpload, VanillaWorkUnit.GraphicPrepare, VanillaWorkUnit.SectionRegeneration);
+    private long nextMeshPass;
+    private bool meshFaulted;
+
+    internal VanillaMeshWork Meshes => meshes;
+    internal bool MeshWorkFaulted => meshFaulted;
 
     internal int PreparedGraphics { get; private set; }
     internal int GraphicsFailures { get; private set; }
@@ -54,14 +62,24 @@ internal sealed class EngineExperiments
     }
 
     internal void Update(ResourceSettings settings, GamePhase phase, ResourceActivation gpu, bool ready,
-        bool loaded, bool throttled, bool memoryOk, long frameStart)
+        bool loaded, bool throttled, bool memoryOk, long frameStart, WorkUnitYields yields)
     {
         if (!TexturePrewarm.SupportedBuild) return;
         bool active = settings.Enabled && settings.GpuEnabled && loaded;
         if (!active || !settings.GpuAnisotropicMeshes) RestoreQuality();
         if (!active || !settings.GpuPrepareGraphics) ResetGraphics();
-        if (!ready || (!settings.GpuPrepareGraphics && !settings.GpuAnisotropicMeshes)
-            || !HardwareWork.MayPrepare(phase, gpu.Active, throttled, memoryOk)) return;
+        if (!active || (!settings.GpuUploadMeshes && !settings.GpuPrepareSections)) meshes.Reset();
+        bool anyWanted = settings.GpuPrepareGraphics || settings.GpuAnisotropicMeshes
+            || settings.GpuUploadMeshes || settings.GpuPrepareSections;
+        if (!ready || !anyWanted || !gpu.Active || throttled || !memoryOk) return;
+        // Building graphics and rebuilding sections stay in menus and pauses. Converting an
+        // existing mesh is as light as a texture upload and follows the GPU phase settings instead.
+        bool mayPrepare = HardwareWork.MayPrepare(phase, gpu.Active, throttled, memoryOk);
+        bool playing = phase is GamePhase.PlayingNormal or GamePhase.PlayingFast or GamePhase.Paused;
+        bool meshWanted = settings.GpuUploadMeshes && playing && !meshFaulted && VanillaMeshWork.MeshTransferAvailable;
+        bool sectionWanted = settings.GpuPrepareSections && mayPrepare && phase == GamePhase.Paused
+            && !meshFaulted && VanillaMeshWork.SectionRegenerationAvailable;
+        if (!mayPrepare && !meshWanted) return;
 
         var device = EngineApplication.Instance?.GraphicsDevice;
         if (device == null) return;
@@ -72,9 +90,15 @@ internal sealed class EngineExperiments
             if (!TexturePrewarm.TryReadTextureHeap(out budget)) return;
         }
         if (!HasHeadroom(settings)) return;
+        if ((meshes.MeshPassDone || meshes.SectionPassDone) && now >= nextMeshPass)
+        {
+            // Sections change while the colony runs; look again at the texture maintenance interval.
+            if (nextMeshPass != 0) meshes.BeginNextPass();
+            nextMeshPass = settings.GpuRefreshSeconds > 0 ? now + settings.GpuRefreshSeconds * 1000L : long.MaxValue;
+        }
 
         // Each candidate is atomic. Share the existing per-frame GPU budget and recheck after it returns.
-        bool quality = settings.GpuAnisotropicMeshes && !qualityDone;
+        bool quality = mayPrepare && settings.GpuAnisotropicMeshes && !qualityDone;
         if (quality && textures == null)
         {
             QualityConflict = HasGraphicsMod();
@@ -82,19 +106,48 @@ internal sealed class EngineExperiments
                 || device.PhysicalDevice.GetProperties().Limits.MaxSamplerAnisotropy < 2;
             if (!qualityDone) textures = CandidateTextures().GetEnumerator();
         }
+        long frame = UnityEngine.Time.frameCount;
+        bool meshMore = meshWanted, sectionMore = sectionWanted;
         for (int i = 0; i < MaxCandidatesPerFrame
             && HardwareWork.HasFrameBudget(Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds,
                 settings.GpuFrameBudgetTenthMs, gpu.Intensity); i++)
         {
-            bool build = settings.GpuPrepareGraphics && !graphicsDone;
-            bool refine = settings.GpuAnisotropicMeshes && !qualityDone;
-            if (!build && !refine) break;
+            bool refine = mayPrepare && settings.GpuAnisotropicMeshes && !qualityDone;
+            // A unit another mod already performs is skipped; its turn goes to the next unit with work.
+            VanillaWorkUnit? unit = rotation.Next(candidate => candidate switch
+            {
+                VanillaWorkUnit.GraphicPrepare => mayPrepare && settings.GpuPrepareGraphics && !graphicsDone,
+                VanillaWorkUnit.MeshUpload => meshMore && !meshes.MeshPassDone,
+                VanillaWorkUnit.SectionRegeneration => sectionMore && !meshes.SectionPassDone,
+                _ => false,
+            }, yields);
+            if (unit == null && !refine) break;
 
-            bool built = false;
-            if (refine && (preferQuality || !build)) StepQuality();
-            else built = StepGraphics();
+            bool allocated = false;
+            if (refine && (preferQuality || unit == null)) StepQuality();
+            else if (unit == VanillaWorkUnit.GraphicPrepare) allocated = StepGraphics();
+            else if (unit != null)
+            {
+                try
+                {
+                    if (unit == VanillaWorkUnit.MeshUpload) meshMore = allocated = meshes.StepMeshTransfer(frame);
+                    else
+                    {
+                        // One rebuilt section is a whole unit of main-thread work for this frame.
+                        allocated = meshes.StepSectionRegeneration(
+                            settings.GpuUploadMeshes && !yields.IsYielded(VanillaWorkUnit.MeshUpload));
+                        sectionMore = false;
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    meshFaulted = true;
+                    meshes.Reset();
+                    Log.Warning("[More Use Resources] Mesh preparation stopped. " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
             preferQuality = !preferQuality;
-            if (built && (!TexturePrewarm.TryReadTextureHeap(out budget) || !HasHeadroom(settings))) break;
+            if (allocated && (!TexturePrewarm.TryReadTextureHeap(out budget) || !HasHeadroom(settings))) break;
         }
     }
 
@@ -166,14 +219,6 @@ internal sealed class EngineExperiments
     {
         if (graphics == null)
         {
-            if (Harmony.GetAllPatchedMethods().Any(method => method.DeclaringType == typeof(GraphicData)
-                || method.DeclaringType == typeof(GraphicDatabase)
-                || method.DeclaringType == typeof(Graphic_Single) || method.DeclaringType == typeof(Graphic_Multi)))
-            {
-                graphicsDone = true;
-                Log.Message("[More Use Resources] Graphic preparation skipped because another mod patches graphic creation.");
-                return false;
-            }
             graphics = CandidateGraphics().GetEnumerator();
         }
         if (!graphics.MoveNext())
@@ -246,6 +291,8 @@ internal sealed class EngineExperiments
     {
         RestoreQuality();
         ResetGraphics();
+        meshes.Reset();
+        meshFaulted = false;
     }
 
     internal void Restore()

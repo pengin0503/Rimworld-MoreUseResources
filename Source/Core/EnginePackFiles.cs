@@ -21,6 +21,9 @@ namespace MoreUseResources.Core
         public const string AssetPackFileName = "Assets.zip";
         public const string TextureCacheDirectory = "TextureCache";
         public const int MaxPacks = 4096;
+        public const string ShaderCacheDirectory = "ShaderCache";
+        public const string ShaderCacheExtension = ".spv-cache";
+        public const int MaxShaderCacheFiles = 4096;
         private const int HashHexLength = 16;
         private const string KeyedPrefix = "pages.";
 
@@ -132,6 +135,46 @@ namespace MoreUseResources.Core
                 }
             }
             return result;
+        }
+
+        /// <summary>
+        /// The engine stores each compiled shader as
+        /// <c>&lt;cache&gt;/ShaderCache/&lt;64 lowercase hex&gt;.spv-cache</c> and reads the whole record
+        /// with an ordinary file read the next time that shader is requested. Only names of that
+        /// exact shape are returned; the directory is never written to.
+        /// </summary>
+        public static List<string> DiscoverShaderCache(string? cacheDataPath, CancellationToken token)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(cacheDataPath)) return result;
+            try
+            {
+                string directory = Path.Combine(cacheDataPath!, ShaderCacheDirectory);
+                if (!Directory.Exists(directory) || IsReparsePoint(directory)) return result;
+                foreach (string file in Directory.EnumerateFiles(directory, "*" + ShaderCacheExtension))
+                {
+                    if (token.IsCancellationRequested || result.Count >= MaxShaderCacheFiles) break;
+                    if (IsShaderCacheRecord(Path.GetFileName(file)) && !IsReparsePoint(file)) result.Add(file);
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            result.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        /// <summary>"&lt;SHA-256 as 64 lowercase hex&gt;.spv-cache", the only name the engine writes.</summary>
+        public static bool IsShaderCacheRecord(string fileName)
+        {
+            const int hex = 64;
+            if (fileName.Length != hex + ShaderCacheExtension.Length
+                || !fileName.EndsWith(ShaderCacheExtension, StringComparison.Ordinal)) return false;
+            for (int i = 0; i < hex; i++)
+            {
+                char c = fileName[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+            }
+            return true;
         }
 
         private static void AddTextureCachePacks(string? cacheDataPath, IReadOnlyList<string> modRoots,

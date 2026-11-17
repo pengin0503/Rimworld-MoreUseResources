@@ -61,6 +61,8 @@ internal sealed class ResourceModSettings : ModSettings
         Scribe_Values.Look(ref Value.GpuResidencyBoost, "gpuResidencyBoost", Defaults.GpuResidencyBoost);
         Scribe_Values.Look(ref Value.GpuPrepareGraphics, "gpuPrepareGraphics", Defaults.GpuPrepareGraphics);
         Scribe_Values.Look(ref Value.GpuAnisotropicMeshes, "gpuAnisotropicMeshes", Defaults.GpuAnisotropicMeshes);
+        Scribe_Values.Look(ref Value.GpuUploadMeshes, "gpuUploadMeshes", Defaults.GpuUploadMeshes);
+        Scribe_Values.Look(ref Value.GpuPrepareSections, "gpuPrepareSections", Defaults.GpuPrepareSections);
         Scribe_Values.Look(ref Value.GpuTargetPercent, "vramTargetPercent", Defaults.GpuTargetPercent);
         Scribe_Values.Look(ref Value.GpuKeepFreeMiB, "vramKeepFreeMiB", Defaults.GpuKeepFreeMiB);
         Scribe_Values.Look(ref Value.GpuFrameBudgetTenthMs, "gpuFrameBudgetTenthMs", Defaults.GpuFrameBudgetTenthMs);

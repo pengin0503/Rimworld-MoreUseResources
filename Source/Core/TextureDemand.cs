@@ -28,6 +28,15 @@ public sealed class TextureDemand<T> where T : notnull
         candidates.Enqueue(texture, count);
     }
 
+    /// <summary>The current ranking with its counts, best first, without consuming it.</summary>
+    public List<(T Item, int Count)> PeekRanked()
+    {
+        var ranked = new List<(T Item, int Count)>(candidates.Count);
+        foreach ((T element, int priority) in candidates.UnorderedItems) ranked.Add((element, priority));
+        ranked.Sort((a, b) => b.Count.CompareTo(a.Count));
+        return ranked;
+    }
+
     public Queue<T> TakeRanked()
     {
         var ranked = new T[candidates.Count];

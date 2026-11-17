@@ -23,6 +23,9 @@ internal sealed class TexturePrewarm
     private const int MaxOwnedCounters = 16384;
     private readonly TextureDemand<Texture2D> demand = new(512);
     private Queue<Texture2D>? priority;
+    // Last session's ranking, resolved against the textures loaded now. Consumed before everything else.
+    private Queue<Texture2D>? history;
+    private IReadOnlyList<TextureDemandSample>? offeredHistory;
     private readonly Dictionary<string, int> ownRehydrates = new(StringComparer.Ordinal);
     private readonly OwnedSetting<bool> tracking = new(
         () => GpuTextureService.TrackRehydration, value => GpuTextureService.TrackRehydration = value);
@@ -46,6 +49,15 @@ internal sealed class TexturePrewarm
     internal long FailedUploads { get; private set; }
     internal long AtlasSourcesSkipped { get; private set; }
     internal long PriorityUploads { get; private set; }
+    internal int HistoryCandidates { get; private set; }
+    internal long HistoryUploads { get; private set; }
+    /// <summary>This session's observed ranking as stable keys; replaced after each completed scan.</summary>
+    internal IReadOnlyList<TextureDemandSample>? DemandSamples { get; private set; }
+    internal int DemandSamplesVersion { get; private set; }
+
+    /// <summary>Any thread: hands over a stored ranking. It is resolved on the main thread.</summary>
+    internal void OfferHistory(IReadOnlyList<TextureDemandSample> samples) =>
+        System.Threading.Volatile.Write(ref offeredHistory, samples);
 
     internal static bool SupportedBuild => OperatingSystem.IsWindows()
         && VersionControl.CurrentMajor == 1 && VersionControl.CurrentMinor == 7
@@ -121,6 +133,8 @@ internal sealed class TexturePrewarm
         Memory = info;
         if (settings.GpuDemandPriority && !demandTrackingExhausted)
             demandTracking = tracking.Apply(true);
+        if (System.Threading.Interlocked.Exchange(ref offeredHistory, null) is { } stored && settings.GpuDemandPriority)
+            ResolveHistory(stored);
 
         long keepFree = settings.GpuKeepFreeMiB * ResourceSettings.MiB;
         bool adaptive = settings.GpuResidencyBoost && TextureResidency.Policy == TextureResidencyPolicy.OffloadUnderPressure;
@@ -134,6 +148,7 @@ internal sealed class TexturePrewarm
                 ObserveWhileCapped(settings.GpuMaxTextureDimension, frameBudgetMs);
                 if (observationScan.Completed)
                 {
+                    CaptureDemandSamples();
                     Queue<Texture2D> observed = demand.TakeRanked();
                     if (observed.Count > 0) priority = observed;
                 }
@@ -152,7 +167,9 @@ internal sealed class TexturePrewarm
         {
             Texture2D? texture;
             Texture2D? priorityCandidate = null;
-            bool prioritized = demandTracking && priority != null && priority.TryDequeue(out priorityCandidate);
+            bool fromHistory = history != null && history.TryDequeue(out priorityCandidate);
+            bool prioritized = fromHistory
+                || (demandTracking && priority != null && priority.TryDequeue(out priorityCandidate));
             if (prioritized) texture = priorityCandidate;
             else if (!scanComplete)
             {
@@ -217,7 +234,8 @@ internal sealed class TexturePrewarm
             }
 
             Uploaded++;
-            if (prioritized) PriorityUploads++;
+            if (fromHistory) HistoryUploads++;
+            else if (prioritized) PriorityUploads++;
             uploadsThisFrame++;
             // A live driver sample after each successful upload prevents overspending a
             // single snapshot when several game textures are uploaded within one frame.
@@ -238,6 +256,7 @@ internal sealed class TexturePrewarm
 
         if (scanComplete && demandTracking && !demandPublished)
         {
+            CaptureDemandSamples();
             Queue<Texture2D> observed = demand.TakeRanked();
             if (observed.Count > 0) priority = observed;
             demandPublished = true;
@@ -306,6 +325,44 @@ internal sealed class TexturePrewarm
         }
     }
 
+    /// <summary>Keeps only stored keys that name a texture loaded in this session, in stored order.</summary>
+    private void ResolveHistory(IReadOnlyList<TextureDemandSample> stored)
+    {
+        var packs = new Dictionary<string, ModContentPack>(StringComparer.OrdinalIgnoreCase);
+        foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+            if (!string.IsNullOrEmpty(pack.PackageIdPlayerFacing)) packs.TryAdd(pack.PackageIdPlayerFacing, pack);
+        var resolved = new Queue<Texture2D>();
+        foreach (TextureDemandSample sample in stored)
+        {
+            if (!packs.TryGetValue(sample.Key.PackageId, out ModContentPack? pack)) continue;
+            var holder = pack.GetContentHolder<Texture2D>();
+            if (holder != null && holder.contentList.TryGetValue(sample.Key.ContentKey, out Texture2D? texture) && texture != null)
+                resolved.Enqueue(texture);
+        }
+        HistoryCandidates = resolved.Count;
+        history = resolved.Count > 0 ? resolved : null;
+    }
+
+    /// <summary>Names the ranked textures by mod and content key so the ranking survives a restart.</summary>
+    private void CaptureDemandSamples()
+    {
+        List<(Texture2D Item, int Count)> ranked = demand.PeekRanked();
+        if (ranked.Count == 0) return;
+        var counts = new Dictionary<Texture2D, int>(ranked.Count, ReferenceEqualityComparer.Instance);
+        foreach ((Texture2D item, int count) in ranked) counts[item] = count;
+        var samples = new List<TextureDemandSample>(ranked.Count);
+        foreach (ModContentPack pack in LoadedModManager.RunningModsListForReading)
+        {
+            var holder = pack.GetContentHolder<Texture2D>();
+            if (holder == null || string.IsNullOrEmpty(pack.PackageIdPlayerFacing)) continue;
+            foreach (KeyValuePair<string, Texture2D> entry in holder.contentList)
+                if (entry.Value != null && counts.TryGetValue(entry.Value, out int count))
+                    samples.Add(new TextureDemandSample(new TextureDemandKey(pack.PackageIdPlayerFacing, entry.Key), count));
+        }
+        DemandSamples = TextureDemandHistory.Normalize(samples);
+        DemandSamplesVersion++;
+    }
+
     private static int ReadRehydrates(string key) =>
         GpuTextureService.RehydratedTextures.TryGetValue(key, out int total) ? total : 0;
 
@@ -322,10 +379,26 @@ internal sealed class TexturePrewarm
     internal void Stop()
     {
         DisableTracking();
+        DropHistory();
         ResetScan();
     }
 
-    internal void InvalidateScan() => ResetScan();
+    /// <summary>Definitions were reloaded: texture objects may have been replaced.</summary>
+    internal void InvalidateScan()
+    {
+        DropHistory();
+        ResetScan();
+    }
+
+    // Waiting phases (loading, saving) restart the scan but keep the resolved history:
+    // its texture objects stay valid until definitions are reloaded.
+    private void DropHistory()
+    {
+        history = null;
+        HistoryCandidates = 0;
+        DemandSamples = null;
+        System.Threading.Volatile.Write(ref offeredHistory, null);
+    }
 
     private void ResetScan(bool preserveDemand = false)
     {

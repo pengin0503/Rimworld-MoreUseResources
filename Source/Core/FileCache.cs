@@ -60,6 +60,7 @@ namespace MoreUseResources.Core
         private long _filesRead;
         private long _errors;
         private long _skippedLarge;
+        private long _budgetFallbackWarms;
         private string? _lastError;
 
         public FileCache(NativeBlockStore store, WorkerPool pool, Func<long>? clockMs = null, Func<bool>? mayRead = null, Func<bool>? mayCopy = null)
@@ -76,6 +77,8 @@ namespace MoreUseResources.Core
         public long FilesRead => Interlocked.Read(ref _filesRead);
         public long Errors => Interlocked.Read(ref _errors);
         public long SkippedLarge => Interlocked.Read(ref _skippedLarge);
+        /// <summary>Files read into the OS cache because the native-copy budget had no room for them.</summary>
+        public long BudgetFallbackWarms => Interlocked.Read(ref _budgetFallbackWarms);
         public string? LastError => Volatile.Read(ref _lastError);
         public int InFlight => Volatile.Read(ref _inFlight);
 
@@ -265,6 +268,7 @@ namespace MoreUseResources.Core
             bool completed = false;
             bool deferred = false;
             bool copied = false;
+            bool warmedWithoutCopy = false;
             try
             {
                 if (!MayRead(generation, token)) return;
@@ -291,6 +295,19 @@ namespace MoreUseResources.Core
                 {
                     if (!TryBeginCopy(length, generation, token, out IntPtr ptr, out deferred))
                     {
+                        if (!deferred) return;
+                        // Only the private copy lacks budget. The read permission still holds, so the
+                        // real file is warmed in the OS cache now and the copy is retried later.
+                        bool alreadyWarm;
+                        lock (_gate) { alreadyWarm = generation == _generation && _warmed.Contains(path); }
+                        if (alreadyWarm) return;
+                        if (ReadAndDiscard(handle, length, generation, token, false, out _))
+                        {
+                            warmedWithoutCopy = true;
+                            Interlocked.Increment(ref _filesRead);
+                            Interlocked.Increment(ref _budgetFallbackWarms);
+                        }
+                        else deferred = false; // interrupted: let a later pass visit the file again
                         return;
                     }
                     bool ok = false;
@@ -365,6 +382,7 @@ namespace MoreUseResources.Core
                             if (copy) _done.Add(path);
                             else _warmed.Add(path);
                         }
+                        if (warmedWithoutCopy) _warmed.Add(path);
                         if (deferred) _deferredForBudget++;
                         // Interrupted (paused or cancelled): make sure a later pass picks it up again.
                         if (!completed && !deferred) _needsPass = true;
