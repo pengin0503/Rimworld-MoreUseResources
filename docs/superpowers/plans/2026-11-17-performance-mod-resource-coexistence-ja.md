@@ -16,7 +16,7 @@ Windows版RimWorld 1.7.5011 rev24、.NET 10、Waylith、Harmony 3。実装基準
 
 **設計**
 
-[併用設計と確認済みの重複](../specs/2026-11-17-performance-mod-resource-coexistence-ja.md)・[既存処理への追加リソース活用](2026-11-17-game-state-resource-work-ja.md)
+[併用設計と確認済みの重複](../specs/2026-11-17-performance-mod-resource-coexistence-ja.md)・[既存処理への追加リソース活用](2026-11-17-game-state-resource-work-ja.md)・[外部MODへの優先配分と既存ワーカーの増枠](2026-11-17-external-mod-resource-allocation-ja.md)
 
 ## 共通条件
 
@@ -57,6 +57,8 @@ Coreに `ExternalFeatureState`（`Absent`、`Inactive`、`Active`、`Unknown`）
 - [ ] 同じテストを再実行し成功を確認する。対象の2メソッド以外のフック、起動全体の計時、既存JIT判定を差分で照合してコミットする。
 
 ## タスク2　外部の並列処理を診断し、プレイ中のCPU枠を調整する
+
+[外部MODへの配分計画](2026-11-17-external-mod-resource-allocation-ja.md)のタスク1〜3を合わせて実施し、明示設定とAxen共有プールへの譲渡を追加する。
 
 **ファイル**
 
