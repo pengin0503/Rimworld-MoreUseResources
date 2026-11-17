@@ -143,6 +143,8 @@ Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithの
 
 [当初の設計資料](docs/plans/2026-11-16-resource-usage-and-activation-ja.md)
 
+[追加で使える処理の調査](docs/plans/2026-11-17-further-resource-use-survey-ja.md)と、その[設計書（未実装）](docs/superpowers/specs/2026-11-17-further-resource-use-design-ja.md)
+
 [ハードウェア活用7件の実装・検証仕様](docs/plans/2026-11-16-hardware-usage-proposals-ja.md)
 
 ### Windows実機での比較測定
