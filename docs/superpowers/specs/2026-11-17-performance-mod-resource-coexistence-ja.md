@@ -1,6 +1,6 @@
 # 軽量化MODとMoreUseResourcesを併用する設計
 
-対象はWindows版RimWorld 1.7.5011 rev24、.NET 10、Waylith、および[PR #5の調査基準 `94ed10a`](https://github.com/pengin0503/Rimworld-MoreUseResources/pull/5/commits/94ed10aebe842ae396a1c976e8bf1ddccb0f9210)。WOWGAG、Axen、Overclockが短縮するTick・GUI処理を活かし、MoreUseResourcesは空きCPU・RAM・VRAMをアセットの先読み・検査とゲーム状態の解析・表示に使う。想定環境はRyzen 7 9700X（16論理CPU）、RX 7800 XT（VRAM 16 GB）、RAM 32 GB、約270〜280 MOD。3 MODは個別に任意で導入できる形とする。
+対象はWindows版RimWorld 1.7.5011 rev24、.NET 10、Waylith、および[PR #5の調査基準 `94ed10a`](https://github.com/pengin0503/Rimworld-MoreUseResources/pull/5/commits/94ed10aebe842ae396a1c976e8bf1ddccb0f9210)。WOWGAG、Axen、Overclockが短縮するTick・GUI処理を活かし、MoreUseResourcesは空きCPU・RAM・GPU・VRAMを、ゲーム本体が既に行うロード・描画・ランタイム処理に使う。想定環境はRyzen 7 9700X（16論理CPU）、RX 7800 XT（VRAM 16 GB）、RAM 32 GB、約270〜280 MOD。3 MODは個別に任意で導入できる形とする。
 
 ## 確認した経路と担当
 
@@ -42,9 +42,9 @@
 - 入力は512件・ファイル1 MiB上限、失敗時は通常走査。生データの読書きはワーカーに任せ、ゲームオブジェクトの解決とアップロードはメインスレッドで分割する。既存のフレーム予算、GPUドライバー予算、空きVRAM、アトラス除外を両方の候補に適用する。
 - 追加VRAM確保が可能かはドライバー予算で決まり、既定の最低空き2 GiBと最大75%の制限を使う。必要なテクスチャが揃えばアップロード作業は終了する。
 
-## ゲーム状態を使う追加処理と完了判定
+## 既存のバニラ処理に限定する範囲と完了判定
 
-- [マップ・物資・セーブを使う追加計画](../plans/2026-11-17-game-state-resource-work-ja.md)に、CPUでの集計、RAMでの一時保持、生成データのGPU描画、Waylithのネイティブ計算、セーブ先読みを記録した。技術的に実装可能でゲーム内の使い道が見込める機能は、速度向上や有用性が未計測でも実装対象とする。
+- [バニラ処理への追加リソース活用](../plans/2026-11-17-game-state-resource-work-ja.md)は、ゲームが読むファイルのOS先読み、通常描画用データの準備、既存のWaylith GPU圧縮・JIT・GC、指定セーブの読み込み準備を対象とする。既存処理にリソースを供給できる経路は、速度向上が未計測でも実装対象とする。
 - 今回の完了判定は単体テスト、静的API照合、Releaseビルド、同梱DLLと配布物の確認までとする。実ゲームの起動、プレイ、性能測定は別工程とする。
 - [Windows実機測定ガイド](../../testing/windows-waylith-benchmark-ja.md)には、3 MODだけ、現行MoreUseResources込み、新しい設定を別途比較するときの条件を残す。TPSやフレーム時間の閾値は設定の実測比較に使う参考値とする。
 - 先読みと検査のI/O統合、パックの範囲単位先読みは既存の追加候補。読み取り範囲を絞る案には、WindowsのファイルI/Oとハードフォールトのトレースを使う。
