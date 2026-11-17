@@ -174,18 +174,37 @@ try {
     $path = New-Settings $case $overclockName ($overclock -replace '\s*<parallelThreads>3</parallelThreads>', '')
     Check-Unchanged 'Overclock value not stored' $path (Get-Sha $path) (Invoke-Launcher $case (& $overclockArgs 1 $path)) 'format cannot be confirmed'
 
-    # --- A running game would overwrite the file, so nothing is written. Needs a process with the game's path.
-    if (-not $IsWindows -and (Test-Path -LiteralPath '/bin/sleep')) {
+    # --- A running game would overwrite the file, so nothing is written. Needs a process whose
+    # executable path is the game's path. Some systems ship a multi-call sleep that refuses to run
+    # under another name, so a small compiled stand-in is tried next; without either the check is skipped.
+    if (-not $IsWindows) {
         $case = New-Case
-        Copy-Item -LiteralPath '/bin/sleep' -Destination $case.Exe -Force
-        & chmod +x $case.Exe
         $path = New-Settings $case $wowgagName $wowgag
-        $standIn = Start-Process -FilePath $case.Exe -ArgumentList '30' -PassThru
-        try {
-            Start-Sleep -Milliseconds 300
-            Check-Unchanged 'game running' $path (Get-Sha $path) (Invoke-Launcher $case (& $wowgagArgs 8 $path)) 'RimWorld is running'
-        } finally {
-            Stop-Process -Id $standIn.Id -Force -ErrorAction SilentlyContinue
+        $standIn = $null
+        $builders = @(
+            { if (Test-Path -LiteralPath '/bin/sleep') { Copy-Item -LiteralPath '/bin/sleep' -Destination $case.Exe -Force; $true } else { $false } },
+            {
+                if (-not (Get-Command cc -ErrorAction SilentlyContinue)) { return $false }
+                $source = Join-Path $case.Folder 'standin.c'
+                [IO.File]::WriteAllText($source, "#include <unistd.h>`nint main(void) { sleep(30); return 0; }`n")
+                & cc -o $case.Exe $source 2>$null
+                return ($LASTEXITCODE -eq 0)
+            })
+        foreach ($build in $builders) {
+            if (-not (& $build)) { continue }
+            & chmod +x $case.Exe
+            $candidate = Start-Process -FilePath $case.Exe -ArgumentList '30' -PassThru -RedirectStandardError (Join-Path $case.Folder 'standin.err')
+            Start-Sleep -Milliseconds 500
+            if (-not $candidate.HasExited) { $standIn = $candidate; break }
+        }
+        if ($null -eq $standIn) {
+            Write-Host 'SKIP  game running: no stand-in process could be started under the game path.'
+        } else {
+            try {
+                Check-Unchanged 'game running' $path (Get-Sha $path) (Invoke-Launcher $case (& $wowgagArgs 8 $path)) 'RimWorld is running'
+            } finally {
+                Stop-Process -Id $standIn.Id -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
