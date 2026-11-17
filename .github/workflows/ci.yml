@@ -27,6 +27,9 @@ jobs:
         run: dotnet build Source/Game/MoreUseResources.csproj -c Release
       - name: Verify checked-in DLL
         run: cmp Source/Game/bin/Release/net10.0/MoreUseResources.dll Assemblies/MoreUseResources.dll
+      - name: Check the launcher script without starting a game
+        shell: pwsh
+        run: ./tools/Test-StartRimWorldGc.ps1
       - name: Package installable mod
         run: python3 tools/package_mod.py dist/Rimworld-MoreUseResources.zip
       - uses: actions/upload-artifact@v4

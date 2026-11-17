@@ -75,6 +75,25 @@ public static class TextureDemandHistory
         finally { File.Delete(temporary); }
     }
 
+    /// <summary>
+    /// Combines this session's ranking with the stored one, so a short session does not erase what
+    /// earlier sessions learned. A texture not seen again keeps half of its stored count, which lets
+    /// it fade out over a few sessions instead of staying forever.
+    /// </summary>
+    public static IReadOnlyList<TextureDemandSample> Merge(IReadOnlyList<TextureDemandSample> session,
+        IReadOnlyList<TextureDemandSample>? previous)
+    {
+        var combined = new List<TextureDemandSample>(session);
+        if (previous != null)
+        {
+            var seen = new HashSet<TextureDemandKey>();
+            foreach (TextureDemandSample sample in session) seen.Add(sample.Key);
+            foreach (TextureDemandSample sample in previous)
+                if (!seen.Contains(sample.Key)) combined.Add(sample with { Count = sample.Count / 2 });
+        }
+        return Normalize(combined);
+    }
+
     /// <summary>Removes invalid and duplicate keys, orders by demand and applies the entry limit.</summary>
     public static IReadOnlyList<TextureDemandSample> Normalize(IReadOnlyList<TextureDemandSample> samples)
     {

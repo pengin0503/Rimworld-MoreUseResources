@@ -48,6 +48,21 @@ public sealed class TextureDemandHistoryTests : IDisposable
     }
 
     [Fact]
+    public void ShortSessionKeepsEarlierHistoryAtHalfWeightUntilItFadesOut()
+    {
+        var previous = new[] { Sample("m", "old-hot", 40), Sample("m", "both", 9), Sample("m", "old-once", 1) };
+        var session = new[] { Sample("m", "both", 3), Sample("m", "new", 5) };
+
+        IReadOnlyList<TextureDemandSample> merged = TextureDemandHistory.Merge(session, previous);
+        // Seen again: this session's count stands. Not seen: half the stored count; a count of 1 fades out.
+        Assert.Equal(new[] { Sample("m", "old-hot", 20), Sample("m", "new", 5), Sample("m", "both", 3) }, merged);
+        Assert.Equal(TextureDemandHistory.Normalize(session), TextureDemandHistory.Merge(session, null));
+        Assert.Equal(TextureDemandHistory.MaxEntries, TextureDemandHistory.Merge(
+            Enumerable.Range(0, 400).Select(i => Sample("m", "s" + i, 10)).ToList(),
+            Enumerable.Range(0, 400).Select(i => Sample("m", "p" + i, 10)).ToList()).Count);
+    }
+
+    [Fact]
     public void EntryAndFileLimitsHold()
     {
         var many = Enumerable.Range(0, 2000).Select(i => Sample("mod.x", "Tex/" + i, 5000 - i)).ToList();

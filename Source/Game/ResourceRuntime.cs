@@ -55,6 +55,7 @@ internal sealed class ResourceRuntime
     private readonly TextureDemandSaveSchedule demandSaves = new();
     private bool patchOwnersScanned;
     private string? demandFingerprint;
+    private IReadOnlyList<TextureDemandSample>? demandPrevious;
     private PackSourceSnapshot? demandSource;
     private int demandVersionSeen;
     private long nextDemandSaveCheck;
@@ -308,6 +309,7 @@ internal sealed class ResourceRuntime
     private void QueueDemandHistoryLoad(PackSourceSnapshot snapshot)
     {
         Volatile.Write(ref demandFingerprint, null);
+        Volatile.Write(ref demandPrevious, null);
         demandSource = snapshot;
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -318,6 +320,8 @@ internal sealed class ResourceRuntime
                     || Volatile.Read(ref stopped) != 0) return;
                 IReadOnlyList<TextureDemandSample> stored = TextureDemandHistory.Load(snapshot.DemandHistoryPath, fingerprint);
                 if (!ReferenceEquals(snapshot, Volatile.Read(ref packSources))) return;
+                // Published before the fingerprint: a save only starts once the fingerprint is visible.
+                Volatile.Write(ref demandPrevious, stored);
                 Volatile.Write(ref demandFingerprint, fingerprint);
                 if (stored.Count > 0) gpu.OfferHistory(stored);
             }
@@ -356,6 +360,8 @@ internal sealed class ResourceRuntime
         if (snapshot == null || fingerprint == null || samples == null || !ReferenceEquals(snapshot, demandSource)
             || !settings.Enabled || !settings.GpuEnabled || !settings.GpuDemandPriority
             || gpu.DemandSamplesVersion == demandVersionSeen || Volatile.Read(ref savingDepth) > 0) return;
+        // What the file held at launch stays in the ranking at reduced weight.
+        samples = TextureDemandHistory.Merge(samples, Volatile.Read(ref demandPrevious));
         if (!demandSaves.TryBegin(now, samples)) return;
         demandVersionSeen = gpu.DemandSamplesVersion;
         if (ThreadPool.QueueUserWorkItem(_ =>

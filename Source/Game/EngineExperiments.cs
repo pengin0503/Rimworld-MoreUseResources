@@ -114,7 +114,8 @@ internal sealed class EngineExperiments
         {
             bool refine = mayPrepare && settings.GpuAnisotropicMeshes && !qualityDone;
             // A unit another mod already performs is skipped; its turn goes to the next unit with work.
-            VanillaWorkUnit? unit = rotation.Next(candidate => candidate switch
+            // The rotation only moves on when a unit really runs, so the filter step cannot use up a turn.
+            VanillaWorkUnit? unit = refine && preferQuality ? null : rotation.Next(candidate => candidate switch
             {
                 VanillaWorkUnit.GraphicPrepare => mayPrepare && settings.GpuPrepareGraphics && !graphicsDone,
                 VanillaWorkUnit.MeshUpload => meshMore && !meshes.MeshPassDone,
@@ -124,7 +125,7 @@ internal sealed class EngineExperiments
             if (unit == null && !refine) break;
 
             bool allocated = false;
-            if (refine && (preferQuality || unit == null)) StepQuality();
+            if (unit == null) StepQuality();
             else if (unit == VanillaWorkUnit.GraphicPrepare) allocated = StepGraphics();
             else if (unit != null)
             {

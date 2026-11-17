@@ -23,7 +23,8 @@ namespace MoreUseResources;
 /// <c>RegenerateDirtyLayers</c> for such a section of the current map does that rebuild early and
 /// clears the flag, so the later draw reuses the result.
 ///
-/// Both run on the main thread inside the caller's frame budget and hold no game object between frames.
+/// Both run on the main thread inside the caller's frame budget. Between frames only the map being
+/// walked is remembered; it is compared with the game's map list before use and dropped by Reset.
 /// </summary>
 internal sealed class VanillaMeshWork
 {

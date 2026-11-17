@@ -2,6 +2,8 @@
 
 > 実装担当は `superpowers:executing-plans` または `superpowers:subagent-driven-development` で、各作業のテスト結果を確認してから次へ進む。
 
+> **実装時の変更（2026-11-17、依頼者の指示）**: 本計画のうち「外部MOD稼働時は最大4ワーカー」「Axenの共有プール混雑時は最大1ワーカー」とその復帰処理は実装しない。外部MODの稼働や共有プールの混雑を理由に、MoreUseResourcesのワーカー上限と処理量を下げない。同じ作業単位だけを譲り、空いた枠は別の独立したバニラ処理に回す。結果は [静的検証の記録](../../review/2026-11-17-external-mod-coexistence-ja.md) を参照。
+
 **目標**
 WOWGAG、Axen、Overclockが担当するバニラ処理をそれぞれに実行させ、増枠できる処理は本来のワーカー設定で増枠する。MoreUseResourcesは競合時に自分の仕事を譲り、余った枠で別の既存処理を準備する。
 
