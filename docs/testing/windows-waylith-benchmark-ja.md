@@ -2,6 +2,8 @@
 
 対象は Windows 11、RimWorld 1.7.5011 rev24（Waylith）、MoreUseResources の PR #5 です。想定機は Ryzen 7 9700X、RX 7800 XT 16 GB、RAM 32 GB、2560×1440／144 Hzです。各機能を個別に切り替え、起動、TPS、フレーム時間、RAM、VRAMのどこに効果が出るかを測ります。
 
+> このガイドは利用者が別途実測するときの資料です。[今回の実装の完了確認](../superpowers/plans/2026-11-17-performance-mod-resource-coexistence-ja.md)は単体テスト・静的確認・Releaseビルド・配布物検証で行います。
+
 ## 1. 測定環境を固定
 
 1. PR #5 の成功した GitHub Actions から `Rimworld-MoreUseResources` を取得し、ZIPを展開して同じコミットのDLLを使います。対象コミット、RimWorldのビルド番号、AMDドライバー版、Windowsビルドを記録します。

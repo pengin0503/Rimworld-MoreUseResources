@@ -1,10 +1,10 @@
 # 軽量化MODとMoreUseResourcesを併用する設計
 
-対象はWindows版RimWorld 1.7.5011 rev24、.NET 10、Waylith、および[PR #5の調査基準 `94ed10a`](https://github.com/pengin0503/Rimworld-MoreUseResources/pull/5/commits/94ed10aebe842ae396a1c976e8bf1ddccb0f9210)。WOWGAG、Axen、Overclockが短縮するTick・GUI処理を活かし、MoreUseResourcesは空きCPU・RAM・VRAMをアセットの先読みや検査に使う。想定環境はRyzen 7 9700X（16論理CPU）、RX 7800 XT（VRAM 16 GB）、RAM 32 GB、約270〜280 MOD。3 MODは個別に任意で導入できる形とする。
+対象はWindows版RimWorld 1.7.5011 rev24、.NET 10、Waylith、および[PR #5の調査基準 `94ed10a`](https://github.com/pengin0503/Rimworld-MoreUseResources/pull/5/commits/94ed10aebe842ae396a1c976e8bf1ddccb0f9210)。WOWGAG、Axen、Overclockが短縮するTick・GUI処理を活かし、MoreUseResourcesは空きCPU・RAM・VRAMをアセットの先読み・検査とゲーム状態の解析・表示に使う。想定環境はRyzen 7 9700X（16論理CPU）、RX 7800 XT（VRAM 16 GB）、RAM 32 GB、約270〜280 MOD。3 MODは個別に任意で導入できる形とする。
 
 ## 確認した経路と担当
 
-提供されたWOWGAGとOverclockの1.7用DLL、Axen v1.1.1のDLLと[同リリースに対応する公開ソース](https://github.com/Axen-o7/Axen-s-Performance-Enhancements/tree/fa2d07054cdd630ba14336180310ad12aa6fc9a3)、およびMoreUseResourcesのコードを静的に照合した。Axen作者の確認ビルドは1.7.4990 rev1069。実際に適用されたパッチと効果は、すべてのMODの起動完了後に確認する。
+提供されたWOWGAGとOverclockの1.7用DLL、Axen v1.1.1のDLLと[同リリースに対応する公開ソース](https://github.com/Axen-o7/Axen-s-Performance-Enhancements/tree/fa2d07054cdd630ba14336180310ad12aa6fc9a3)、およびMoreUseResourcesのコードを静的に照合した。Axen作者の確認ビルドは1.7.4990 rev1069。実際に適用されたパッチは、起動完了後に利用者が診断から確認できる設計とする。
 
 | 処理 | 確認した重複 | 併用時の扱い |
 | --- | --- | --- |
@@ -42,11 +42,11 @@
 - 入力は512件・ファイル1 MiB上限、失敗時は通常走査。生データの読書きはワーカーに任せ、ゲームオブジェクトの解決とアップロードはメインスレッドで分割する。既存のフレーム予算、GPUドライバー予算、空きVRAM、アトラス除外を両方の候補に適用する。
 - 追加VRAM確保が可能かはドライバー予算で決まり、既定の最低空き2 GiBと最大75%の制限を使う。必要なテクスチャが揃えばアップロード作業は終了する。
 
-## 比較と採否
+## ゲーム状態を使う追加処理と完了判定
 
-- [既存のWindows実機測定手順](../../testing/windows-waylith-benchmark-ja.md)を使い、3 MODだけ、現行MoreUseResources込み、新しい併用設定の3条件を記録する。通常・高速プレイ、ポーズ中のカメラ移動、タイトル到達までの時間をそれぞれ測る。並列Pawn Tickの比較は最適化MOD側の実際の稼働状態が一致する試行同士で行う。
-- 性能判定は通常速度で上限TPSに達しただけのケースを区別し、高速時のTPS、フレーム間隔P95/P99、開始からタイトルまでの秒数を併記する。リソース側はCPU使用率、OS空きRAM、ワーキングセットとPrivate Bytes、専用VRAM、OS先読み成功件数、需要順アップロード件数を別々に記録する。
-- 既存手順の目安に従い、TPSが5%以上低下、P95が10%以上悪化、起動時間がばらつきを超えて増加したケースは機能別に分解する。高負荷とポーズ中の双方で実アセット処理が増えたかを確認し、差が小さければ3回から5回に増やす。保存・ロード失敗や新しい描画エラーが出た構成は採用条件を満たさない。
-- セーブ1本の起動前先読み、I/O重複の統合、パックの範囲単位先読みは次の候補とする。まず現行のディスク読み取りやロードがボトルネックかを上記の比較で判断し、パックの範囲選択はWindowsのファイルI/O・ハードフォールトのトレースから決める。
+- [マップ・物資・セーブを使う追加計画](../plans/2026-11-17-game-state-resource-work-ja.md)に、CPUでの集計、RAMでの一時保持、生成データのGPU描画、Waylithのネイティブ計算、セーブ先読みを記録した。技術的に実装可能でゲーム内の使い道が見込める機能は、速度向上や有用性が未計測でも実装対象とする。
+- 今回の完了判定は単体テスト、静的API照合、Releaseビルド、同梱DLLと配布物の確認までとする。実ゲームの起動、プレイ、性能測定は別工程とする。
+- [Windows実機測定ガイド](../../testing/windows-waylith-benchmark-ja.md)には、3 MODだけ、現行MoreUseResources込み、新しい設定を別途比較するときの条件を残す。TPSやフレーム時間の閾値は設定の実測比較に使う参考値とする。
+- 先読みと検査のI/O統合、パックの範囲単位先読みは既存の追加候補。読み取り範囲を絞る案には、WindowsのファイルI/Oとハードフォールトのトレースを使う。
 
 [実装順と受入条件](../plans/2026-11-17-performance-mod-resource-coexistence-ja.md)
