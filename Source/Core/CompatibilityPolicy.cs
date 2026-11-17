@@ -22,6 +22,7 @@ public enum VanillaWorkUnit
     PatchedXmlCache = 1,
     JitPrewarm = 2,
     GraphicPrepare = 3,
+    /// <summary>Not driven by this mod: the game converts and queues a section mesh when it rebuilds it.</summary>
     MeshUpload = 4,
     SectionRegeneration = 5,
     TextureUpload = 6,

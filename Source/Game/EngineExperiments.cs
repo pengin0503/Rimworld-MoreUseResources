@@ -30,14 +30,14 @@ internal sealed class EngineExperiments
     private bool preferQuality;
     private long nextBudgetCheck;
     private VramInfo budget;
-    private readonly VanillaMeshWork meshes = new();
+    private readonly VanillaSectionWork sections = new();
     private readonly PreparationRotation rotation = new(
-        VanillaWorkUnit.MeshUpload, VanillaWorkUnit.GraphicPrepare, VanillaWorkUnit.SectionRegeneration);
-    private long nextMeshPass;
-    private bool meshFaulted;
+        VanillaWorkUnit.GraphicPrepare, VanillaWorkUnit.SectionRegeneration);
+    private long nextSectionPass;
+    private bool sectionFaulted;
 
-    internal VanillaMeshWork Meshes => meshes;
-    internal bool MeshWorkFaulted => meshFaulted;
+    internal VanillaSectionWork Sections => sections;
+    internal bool SectionWorkFaulted => sectionFaulted;
 
     internal int PreparedGraphics { get; private set; }
     internal int GraphicsFailures { get; private set; }
@@ -68,18 +68,12 @@ internal sealed class EngineExperiments
         bool active = settings.Enabled && settings.GpuEnabled && loaded;
         if (!active || !settings.GpuAnisotropicMeshes) RestoreQuality();
         if (!active || !settings.GpuPrepareGraphics) ResetGraphics();
-        if (!active || (!settings.GpuUploadMeshes && !settings.GpuPrepareSections)) meshes.Reset();
-        bool anyWanted = settings.GpuPrepareGraphics || settings.GpuAnisotropicMeshes
-            || settings.GpuUploadMeshes || settings.GpuPrepareSections;
-        if (!ready || !anyWanted || !gpu.Active || throttled || !memoryOk) return;
-        // Building graphics and rebuilding sections stay in menus and pauses. Converting an
-        // existing mesh is as light as a texture upload and follows the GPU phase settings instead.
-        bool mayPrepare = HardwareWork.MayPrepare(phase, gpu.Active, throttled, memoryOk);
-        bool playing = phase is GamePhase.PlayingNormal or GamePhase.PlayingFast or GamePhase.Paused;
-        bool meshWanted = settings.GpuUploadMeshes && playing && !meshFaulted && VanillaMeshWork.MeshTransferAvailable;
-        bool sectionWanted = settings.GpuPrepareSections && mayPrepare && phase == GamePhase.Paused
-            && !meshFaulted && VanillaMeshWork.SectionRegenerationAvailable;
-        if (!mayPrepare && !meshWanted) return;
+        if (!active || !settings.GpuPrepareSections) sections.Reset();
+        if (!ready || (!settings.GpuPrepareGraphics && !settings.GpuAnisotropicMeshes && !settings.GpuPrepareSections)
+            || !HardwareWork.MayPrepare(phase, gpu.Active, throttled, memoryOk)) return;
+        // Rebuilding a section is whole main-thread work, so it only runs while the game is paused.
+        bool sectionWanted = settings.GpuPrepareSections && phase == GamePhase.Paused
+            && !sectionFaulted && VanillaSectionWork.Available;
 
         var device = EngineApplication.Instance?.GraphicsDevice;
         if (device == null) return;
@@ -90,15 +84,15 @@ internal sealed class EngineExperiments
             if (!TexturePrewarm.TryReadTextureHeap(out budget)) return;
         }
         if (!HasHeadroom(settings)) return;
-        if ((meshes.MeshPassDone || meshes.SectionPassDone) && now >= nextMeshPass)
+        if (sections.PassDone && now >= nextSectionPass)
         {
             // Sections change while the colony runs; look again at the texture maintenance interval.
-            if (nextMeshPass != 0) meshes.BeginNextPass();
-            nextMeshPass = settings.GpuRefreshSeconds > 0 ? now + settings.GpuRefreshSeconds * 1000L : long.MaxValue;
+            if (nextSectionPass != 0) sections.BeginNextPass();
+            nextSectionPass = settings.GpuRefreshSeconds > 0 ? now + settings.GpuRefreshSeconds * 1000L : long.MaxValue;
         }
 
         // Each candidate is atomic. Share the existing per-frame GPU budget and recheck after it returns.
-        bool quality = mayPrepare && settings.GpuAnisotropicMeshes && !qualityDone;
+        bool quality = settings.GpuAnisotropicMeshes && !qualityDone;
         if (quality && textures == null)
         {
             QualityConflict = HasGraphicsMod();
@@ -106,20 +100,18 @@ internal sealed class EngineExperiments
                 || device.PhysicalDevice.GetProperties().Limits.MaxSamplerAnisotropy < 2;
             if (!qualityDone) textures = CandidateTextures().GetEnumerator();
         }
-        long frame = UnityEngine.Time.frameCount;
-        bool meshMore = meshWanted, sectionMore = sectionWanted;
+        bool sectionMore = sectionWanted;
         for (int i = 0; i < MaxCandidatesPerFrame
             && HardwareWork.HasFrameBudget(Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds,
                 settings.GpuFrameBudgetTenthMs, gpu.Intensity); i++)
         {
-            bool refine = mayPrepare && settings.GpuAnisotropicMeshes && !qualityDone;
+            bool refine = settings.GpuAnisotropicMeshes && !qualityDone;
             // A unit another mod already performs is skipped; its turn goes to the next unit with work.
             // The rotation only moves on when a unit really runs, so the filter step cannot use up a turn.
             VanillaWorkUnit? unit = refine && preferQuality ? null : rotation.Next(candidate => candidate switch
             {
-                VanillaWorkUnit.GraphicPrepare => mayPrepare && settings.GpuPrepareGraphics && !graphicsDone,
-                VanillaWorkUnit.MeshUpload => meshMore && !meshes.MeshPassDone,
-                VanillaWorkUnit.SectionRegeneration => sectionMore && !meshes.SectionPassDone,
+                VanillaWorkUnit.GraphicPrepare => settings.GpuPrepareGraphics && !graphicsDone,
+                VanillaWorkUnit.SectionRegeneration => sectionMore && !sections.PassDone,
                 _ => false,
             }, yields);
             if (unit == null && !refine) break;
@@ -131,20 +123,16 @@ internal sealed class EngineExperiments
             {
                 try
                 {
-                    if (unit == VanillaWorkUnit.MeshUpload) meshMore = allocated = meshes.StepMeshTransfer(frame);
-                    else
-                    {
-                        // One rebuilt section is a whole unit of main-thread work for this frame.
-                        allocated = meshes.StepSectionRegeneration(
-                            settings.GpuUploadMeshes && !yields.IsYielded(VanillaWorkUnit.MeshUpload));
-                        sectionMore = false;
-                    }
+                    // One rebuilt section is a whole unit of main-thread work for this frame. The engine
+                    // uploads its new meshes on the next frame, so the budget is read again afterwards.
+                    allocated = sections.Step();
+                    sectionMore = false;
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    meshFaulted = true;
-                    meshes.Reset();
-                    Log.Warning("[More Use Resources] Mesh preparation stopped. " + ex.GetType().Name + ": " + ex.Message);
+                    sectionFaulted = true;
+                    sections.Reset();
+                    Log.Warning("[More Use Resources] Section preparation stopped. " + ex.GetType().Name + ": " + ex.Message);
                 }
             }
             preferQuality = !preferQuality;
@@ -292,8 +280,8 @@ internal sealed class EngineExperiments
     {
         RestoreQuality();
         ResetGraphics();
-        meshes.Reset();
-        meshFaulted = false;
+        sections.Reset();
+        sectionFaulted = false;
     }
 
     internal void Restore()

@@ -138,11 +138,12 @@ function Set-ExternalWorkerCount {
         # omitted from the file while 0). The settings window offers 0..32 and the worker pool is rebuilt
         # whenever the value differs, so the edit applies at the next launch.
         Wowgag    = @{ Field = 'parWorkers'; Class = '^GUIPerformancePatch\.GppSettings$'; File = '^Mod_.+_GppMod17\.xml$'
-                       Max = 32; AddWhenMissing = $true; Screen = "WOWGAG's Performance Patch" }
-        # Overclock: the stored name is checked against the file itself, because a value left at its
-        # default is not written by the game. Its settings window offers 0..(logical processors - 1).
-        Overclock = @{ Field = 'parallelThreads'; Class = '(^|\.)OverclockSettings$'; File = '^Mod_.+\.xml$'
-                       Max = [Math]::Max(1, [Environment]::ProcessorCount - 1); AddWhenMissing = $false; Screen = 'Overclock' }
+                       Max = 32; Screen = "WOWGAG's Performance Patch" }
+        # Overclock (Workshop 3828406061, 1.7 assembly): OverclockSettings.ExposeData writes "parallelThreads"
+        # (default 0 = automatic, omitted from the file while 0). Its settings window offers
+        # 0..(logical processors - 1) and the worker pool is started once, so the edit applies at the next launch.
+        Overclock = @{ Field = 'parallelThreads'; Class = '^Overclock\.OverclockSettings$'; File = '^Mod_.+_OverclockMod\.xml$'
+                       Max = [Math]::Max(1, [Environment]::ProcessorCount - 1); Screen = 'Overclock' }
     }[$Owner]
     $guide = 'Change the worker count in the mod settings window of {0} instead.' -f $known.Screen
 
@@ -189,8 +190,6 @@ function Set-ExternalWorkerCount {
             return
         }
         $fields[0].InnerText = $Count.ToString([Globalization.CultureInfo]::InvariantCulture)
-    } elseif (-not $known.AddWhenMissing) {
-        throw ('{0} is not stored in this file, so its format cannot be confirmed. {1}' -f $known.Field, $guide)
     } elseif ($Count -eq 0) {
         Write-Host ('{0} {1} is not stored, which already means 0 (automatic); the file was not changed.' -f $Owner, $known.Field)
         return

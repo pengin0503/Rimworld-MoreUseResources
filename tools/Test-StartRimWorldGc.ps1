@@ -70,7 +70,7 @@ $wowgag = @'
 </SettingsBlock>
 '@
 $wowgagDefault = $wowgag -replace '\s*<parWorkers>4</parWorkers>', ''
-$overclockName = 'Mod_Overclock_OverclockMod.xml'
+$overclockName = 'Mod_3828406061_OverclockMod.xml'
 $overclock = @'
 <?xml version="1.0" encoding="utf-8"?>
 <SettingsBlock>
@@ -102,7 +102,7 @@ try {
     Check-Unchanged 'WOWGAG above 32' $path $before (Invoke-Launcher $case (& $wowgagArgs 33 $path)) 'accepts 0 \(automatic\) to 32'
     Check-Unchanged 'negative count' $path $before (Invoke-Launcher $case (& $wowgagArgs -1 $path)) 'accepts 0 \(automatic\) to 32'
     Check-Unchanged 'same value' $path $before (Invoke-Launcher $case (& $wowgagArgs 4 $path)) 'already 4'
-    Check-Unchanged 'Overclock owner on a WOWGAG file' $path $before (Invoke-Launcher $case (& $overclockArgs 2 $path)) 'does not hold the settings class'
+    Check-Unchanged 'Overclock owner on a WOWGAG file' $path $before (Invoke-Launcher $case (& $overclockArgs 2 $path)) 'not the settings file'
     Check-Unchanged 'missing file' $path $before `
         (Invoke-Launcher $case (& $wowgagArgs 8 (Join-Path $case.Folder 'Mod_none_GppMod17.xml'))) 'left unchanged'
 
@@ -170,9 +170,23 @@ try {
     Check 'Overclock to 0: only the value differs' ([IO.File]::ReadAllText($path) -eq ($overclock -replace '>3<', '>0<')) $output
     Check 'Overclock to 0: one backup' ((Get-Extras $path).Count -eq 1)
 
+    # Overclock does not store the default 0 either.
     $case = New-Case
     $path = New-Settings $case $overclockName ($overclock -replace '\s*<parallelThreads>3</parallelThreads>', '')
-    Check-Unchanged 'Overclock value not stored' $path (Get-Sha $path) (Invoke-Launcher $case (& $overclockArgs 1 $path)) 'format cannot be confirmed'
+    Check-Unchanged 'Overclock default asked for 0' $path (Get-Sha $path) (Invoke-Launcher $case (& $overclockArgs 0 $path)) 'already means 0'
+    $output = Invoke-Launcher $case (& $overclockArgs 1 $path)
+    $document = New-Object System.Xml.XmlDocument
+    $document.Load($path)
+    Check 'Overclock default to 1: element added' ($document.SelectNodes('/SettingsBlock/ModSettings/parallelThreads').Count -eq 1 -and
+        $document.SelectSingleNode('/SettingsBlock/ModSettings/parallelThreads').InnerText -eq '1') $output
+    Check 'Overclock default to 1: other values kept' ($document.SelectSingleNode('/SettingsBlock/ModSettings/other').InnerText -eq 'keep')
+    Check 'Overclock default to 1: one backup' ((Get-Extras $path).Count -eq 1)
+
+    $case = New-Case
+    $path = New-Settings $case 'Mod_3828406061_OtherMod.xml' $overclock
+    Check-Unchanged 'Overclock owner on another file name' $path (Get-Sha $path) (Invoke-Launcher $case (& $overclockArgs 1 $path)) 'not the settings file'
+    $path = New-Settings $case $overclockName ($overclock -replace 'Overclock\.OverclockSettings', 'Other.OverclockSettings')
+    Check-Unchanged 'Overclock file with another settings class' $path (Get-Sha $path) (Invoke-Launcher $case (& $overclockArgs 1 $path)) 'does not hold the settings class'
 
     # --- A running game would overwrite the file, so nothing is written. Needs a process whose
     # executable path is the game's path. Some systems ship a multi-call sleep that refuses to run

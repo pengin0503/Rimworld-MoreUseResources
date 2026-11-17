@@ -134,17 +134,15 @@ internal sealed class PerformanceModCompatibility
         if (type == typeof(GraphicData) || type == typeof(GraphicDatabase)
             || type == typeof(Graphic_Single) || type == typeof(Graphic_Multi))
             return GraphicUnits;
-        if (type == typeof(Section) || type == typeof(MapDrawer))
-            return method.Name is "DrawSection" ? MeshAndSectionUnits : SectionUnits;
+        if (type == typeof(Section) || type == typeof(MapDrawer)) return SectionUnits;
         if (typeof(MapDrawLayer).IsAssignableFrom(type))
-            return method.Name is "DrawLayer" ? MeshAndSectionUnits : method.Name is "Regenerate" ? SectionUnits : NoUnits;
+            return method.Name is "DrawLayer" or "Regenerate" ? SectionUnits : NoUnits;
         return NoUnits;
     }
 
     private static readonly VanillaWorkUnit[] NoUnits = Array.Empty<VanillaWorkUnit>();
     private static readonly VanillaWorkUnit[] GraphicUnits = { VanillaWorkUnit.GraphicPrepare };
     private static readonly VanillaWorkUnit[] SectionUnits = { VanillaWorkUnit.SectionRegeneration };
-    private static readonly VanillaWorkUnit[] MeshAndSectionUnits = { VanillaWorkUnit.MeshUpload, VanillaWorkUnit.SectionRegeneration };
 
     private static void Collect(IEnumerable<Patch>? patches, bool canReplace, VanillaWorkUnit[] units, bool isPathGrid,
         List<ForeignPatch> found, SortedSet<string> pathGridOwners, ref bool axenPatched)
@@ -216,8 +214,10 @@ internal sealed class PerformanceModCompatibility
                 if (settings.GetType().GetField("parallelThreads", AnyInstance)?.GetValue(settings) is int value)
                     configured = value;
             }
-            // Overclock shows no live worker count; its setting applies after a restart.
-            workers = new ExternalWorkerSetting("parallelThreads", configured, null);
+            // Overclock starts its pool once, when parallel pawn ticks are applied; the setting is read then.
+            int? running = FindType(pack, "Overclock.Parallel.Worker")?.GetProperty("ThreadCount", AnyStatic)?.GetValue(null)
+                is int count && count > 0 ? count : null;
+            workers = new ExternalWorkerSetting("parallelThreads", configured, running);
             object? active = FindType(pack, "Overclock.Optimisations.ParallelPawnTicks")?.GetField("active", AnyStatic)?.GetValue(null);
             return active is bool on
                 ? (on ? ExternalFeatureState.Active : ExternalFeatureState.Inactive)

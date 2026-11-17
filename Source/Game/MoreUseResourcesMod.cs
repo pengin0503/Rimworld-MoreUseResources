@@ -150,22 +150,14 @@ public sealed class MoreUseResourcesMod : Mod
             list.Label((experiments.UncompressedActive ? "MUR_TextureCodecActive" : "MUR_TextureCodecInactive").Translate());
         if (settings.Value.GpuPrepareGraphics)
             list.Label("MUR_GraphicWarmStatus".Translate(experiments.PreparedGraphics, experiments.GraphicsFailures));
-        if (settings.Value.GpuUploadMeshes || settings.Value.GpuPrepareSections)
+        if (settings.Value.GpuPrepareSections)
         {
-            VanillaMeshWork meshes = experiments.Meshes;
-            if (experiments.MeshWorkFaulted || !VanillaMeshWork.MeshTransferAvailable)
-                list.Label("MUR_MeshUnavailable".Translate());
+            if (experiments.SectionWorkFaulted || !VanillaSectionWork.Available)
+                list.Label("MUR_SectionUnavailable".Translate());
             else
-            {
-                if (status.Yields.OwnerOf(VanillaWorkUnit.MeshUpload) is { } meshOwner)
-                    list.Label("MUR_MeshYielded".Translate(meshOwner));
-                else if (settings.Value.GpuUploadMeshes)
-                    list.Label("MUR_MeshStatus".Translate(meshes.MeshesQueued, meshes.MeshVerticesQueued, meshes.MeshPasses));
-                if (settings.Value.GpuPrepareSections)
-                    list.Label(status.Yields.OwnerOf(VanillaWorkUnit.SectionRegeneration) is { } sectionOwner
-                        ? "MUR_SectionYielded".Translate(sectionOwner)
-                        : "MUR_SectionStatus".Translate(meshes.SectionsRegenerated));
-            }
+                list.Label(status.Yields.OwnerOf(VanillaWorkUnit.SectionRegeneration) is { } sectionOwner
+                    ? "MUR_SectionYielded".Translate(sectionOwner)
+                    : "MUR_SectionStatus".Translate(experiments.Sections.SectionsRegenerated));
         }
         if (settings.Value.GpuAnisotropicMeshes)
             list.Label(experiments.QualityConflict
@@ -195,7 +187,8 @@ public sealed class MoreUseResourcesMod : Mod
             list.Label("MUR_ExternalWowgag".Translate(StateName(external.Wowgag), Configured(external.WowgagWorkers),
                 external.WowgagWorkers?.Running is { } running ? running.ToString() : "MUR_ExternalUnread".Translate().ToString()));
         if (external.Overclock != ExternalFeatureState.Absent)
-            list.Label("MUR_ExternalOverclock".Translate(StateName(external.Overclock), Configured(external.OverclockWorkers)));
+            list.Label("MUR_ExternalOverclock".Translate(StateName(external.Overclock), Configured(external.OverclockWorkers),
+                external.OverclockWorkers?.Running is { } overclockRunning ? overclockRunning.ToString() : "MUR_ExternalUnread".Translate().ToString()));
         string owners = runtime.Compatibility.PathGridOwners;
         if (external.AxenPathGrid != ExternalFeatureState.Absent || owners.Length > 0)
             list.Label("MUR_ExternalAxen".Translate(StateName(external.AxenPathGrid),
@@ -342,7 +335,6 @@ public sealed class MoreUseResourcesMod : Mod
             Toggle(list, "MUR_GpuDemandPriority", ref s.GpuDemandPriority);
             Toggle(list, "MUR_GpuPrepareGraphics", ref s.GpuPrepareGraphics);
             Toggle(list, "MUR_GpuAnisotropicMeshes", ref s.GpuAnisotropicMeshes);
-            Toggle(list, "MUR_GpuUploadMeshes", ref s.GpuUploadMeshes);
             Toggle(list, "MUR_GpuPrepareSections", ref s.GpuPrepareSections);
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);

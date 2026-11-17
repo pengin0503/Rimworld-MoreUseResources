@@ -111,8 +111,6 @@ namespace MoreUseResources.Core
         public bool GpuDemandPriority = false;
         public bool GpuPrepareGraphics = false;
         public bool GpuAnisotropicMeshes = false;
-        /// <summary>Convert map section meshes the game already built, so the engine uploads them before their first draw.</summary>
-        public bool GpuUploadMeshes = true;
         /// <summary>While paused, rebuild changed off-screen sections of the current map with the game's own method.</summary>
         public bool GpuPrepareSections = false;
         /// <summary>Upper bound for device-local usage as percent of the driver budget. Capped at 75 to stay under the engine's own eviction watermark (about 80%).</summary>
@@ -145,7 +143,7 @@ namespace MoreUseResources.Core
             CpuSyntheticLoad = RamReserve = RamHoldCopies = false;
             RamResidentPackMiB = Math.Max(RamResidentPackMiB, 4096);
             RamMinFreeMiB = Math.Max(RamMinFreeMiB, 6144);
-            GpuResidencyBoost = GpuDemandPriority = GpuUploadMeshes = true;
+            GpuResidencyBoost = GpuDemandPriority = true;
             GpuTargetPercent = Math.Max(GpuTargetPercent, 65);
             GpuKeepFreeMiB = Math.Max(GpuKeepFreeMiB, 2048);
             GpuFrameBudgetTenthMs = Math.Max(GpuFrameBudgetTenthMs, 20);

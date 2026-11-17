@@ -134,7 +134,7 @@
   <MUR_JitWowgag>JIT先行コンパイルはWOWGAG側を優先中</MUR_JitWowgag>
   <MUR_ExternalNoReduce>本MODのワーカー上限 {0}・現在の稼働数 {1}。他MODの並列処理やエンジン共有ジョブプールの混雑では、この上限を下げません</MUR_ExternalNoReduce>
   <MUR_ExternalWowgag>WOWGAGの並列機能　{0}・parWorkers の設定値 {1}・現在の稼働ワーカー {2}。数の変更はWOWGAGの設定画面で行ってください</MUR_ExternalWowgag>
-  <MUR_ExternalOverclock>Overclockの並列Pawn Tick　{0}・parallelThreads の設定値 {1}（再起動後に反映）。数の変更はOverclockの設定画面で行ってください</MUR_ExternalOverclock>
+  <MUR_ExternalOverclock>Overclockの並列Pawn Tick　{0}・parallelThreads の設定値 {1}・現在の稼働ワーカー {2}（設定は再起動後に反映）。数の変更はOverclockの設定画面で行ってください</MUR_ExternalOverclock>
   <MUR_ExternalAxen>Axenの経路グリッドパッチ　{0}・経路グリッド発行メソッドのHarmonyオーナー {1}。Axenはエンジンの共有ジョブプールで動作し、専用のワーカー設定はありません</MUR_ExternalAxen>
   <MUR_ExternalSharedPool>エンジン共有ジョブプール　ワーカー {0}・現時点で処理待ちあり {1}（診断用の表示のみ）</MUR_ExternalSharedPool>
   <MUR_ExternalStateAbsent>未導入</MUR_ExternalStateAbsent>
@@ -149,11 +149,8 @@
   <MUR_YieldedUnits>同じ処理を担当する他MODに譲っている作業　{0}。それ以外の作業は継続します</MUR_YieldedUnits>
   <MUR_XmlYielded>WOWGAGのXML再利用が {0} のため、LoadModXML と CombineIntoUnifiedXML の計測を省略し、XMLパッチキャッシュもWOWGAGに譲っています</MUR_XmlYielded>
   <MUR_PrefetchFallbackStatus>コピー予算待ちの間にOSキャッシュへ先読みしたファイル {0} 件・先読み対象のコンパイル済みシェーダー {1} 件</MUR_PrefetchFallbackStatus>
-  <MUR_GpuUploadMeshes>生成済みの区画メッシュを変換し、初回描画より前にエンジンのGPU転送へ回す</MUR_GpuUploadMeshes>
   <MUR_GpuPrepareSections>ポーズ中に、画面外で変更された現在マップの区画メッシュを先に更新（実験機能）</MUR_GpuPrepareSections>
-  <MUR_MeshStatus>初回描画前にエンジンの転送キューへ渡した区画メッシュ　{0} 件（{1} 頂点）・巡回 {2} 回</MUR_MeshStatus>
-  <MUR_MeshYielded>区画メッシュの転送は、区画の描画を置き換えている {0} に譲っています</MUR_MeshYielded>
-  <MUR_MeshUnavailable>区画メッシュの準備は、このゲームビルドで使用できないか、エラーのため停止しました</MUR_MeshUnavailable>
+  <MUR_SectionUnavailable>区画の先行更新は、このゲームビルドで使用できないか、エラーのため停止しました</MUR_SectionUnavailable>
   <MUR_SectionStatus>ポーズ中に先行更新した画面外の区画　{0} 件</MUR_SectionStatus>
   <MUR_SectionYielded>区画の更新は、本体の区画更新を置き換えている {0} に譲っています</MUR_SectionYielded>
   <MUR_DemandHistoryStatus>テクスチャ需要履歴　前回セッションからの候補 {0} 件・アップロード {1} 件・保存 {2} 回</MUR_DemandHistoryStatus>

@@ -134,7 +134,7 @@
   <MUR_JitWowgag>JIT prewarming deferred to WOWGAG</MUR_JitWowgag>
   <MUR_ExternalNoReduce>Own worker limit {0} · running now {1}. Parallel work of other mods and the engine's shared job pool never lower this limit</MUR_ExternalNoReduce>
   <MUR_ExternalWowgag>WOWGAG parallel features: {0} · parWorkers setting {1} · workers it runs now {2}. Change the count in WOWGAG's own settings</MUR_ExternalWowgag>
-  <MUR_ExternalOverclock>Overclock parallel pawn ticks: {0} · parallelThreads setting {1} (applies after a restart). Change the count in Overclock's own settings</MUR_ExternalOverclock>
+  <MUR_ExternalOverclock>Overclock parallel pawn ticks: {0} · parallelThreads setting {1} · worker threads running now {2} (the setting applies after a restart). Change the count in Overclock's own settings</MUR_ExternalOverclock>
   <MUR_ExternalAxen>Axen path grid patch: {0} · Harmony owners on the path grid scheduler: {1}. Axen uses the engine's shared job pool and has no worker setting of its own</MUR_ExternalAxen>
   <MUR_ExternalSharedPool>Engine shared job pool: {0} workers · work pending right now: {1} (shown for diagnosis only)</MUR_ExternalSharedPool>
   <MUR_ExternalStateAbsent>not installed</MUR_ExternalStateAbsent>
@@ -149,11 +149,8 @@
   <MUR_YieldedUnits>Left to another mod that already does the same work: {0}. All other work keeps running</MUR_YieldedUnits>
   <MUR_XmlYielded>WOWGAG XML reuse is {0}: LoadModXML and CombineIntoUnifiedXML are not timed, and the patched XML cache is left to WOWGAG</MUR_XmlYielded>
   <MUR_PrefetchFallbackStatus>Warmed in the OS cache while the private copy waits for budget: {0} files · compiled shader records in the prefetch list: {1}</MUR_PrefetchFallbackStatus>
-  <MUR_GpuUploadMeshes>Convert built map section meshes so the engine uploads them before their first draw</MUR_GpuUploadMeshes>
   <MUR_GpuPrepareSections>While paused, rebuild changed off-screen sections of the current map (experimental)</MUR_GpuPrepareSections>
-  <MUR_MeshStatus>Section meshes handed to the engine's upload queue ahead of first draw: {0} ({1} vertices) · passes {2}</MUR_MeshStatus>
-  <MUR_MeshYielded>Section mesh transfer is left to {0}, which replaces the section draw</MUR_MeshYielded>
-  <MUR_MeshUnavailable>Section mesh preparation is unavailable on this game build or stopped after an error</MUR_MeshUnavailable>
+  <MUR_SectionUnavailable>Section preparation is unavailable on this game build or stopped after an error</MUR_SectionUnavailable>
   <MUR_SectionStatus>Off-screen sections rebuilt while paused: {0}</MUR_SectionStatus>
   <MUR_SectionYielded>Section rebuilding is left to {0}, which replaces the game's section update</MUR_SectionYielded>
   <MUR_DemandHistoryStatus>Texture demand history: {0} candidates from the last session · {1} uploaded · {2} saves</MUR_DemandHistoryStatus>
