@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using MoreUseResources.Core;
 using Xunit;
 
@@ -180,6 +181,45 @@ namespace MoreUseResources.Tests
             temp.Write("a/Assets.zip", 8192);
 
             Assert.True(PumpUntil(residency, s => s.MappedBytes == 8192));
+        }
+
+        [Fact]
+        public void Release_does_not_wait_for_a_disk_read_in_progress()
+        {
+            using var temp = new TemporaryDirectory();
+            string a = temp.Write("a/Assets.zip", 3 * 1024 * 1024);
+            using var pool = Pool();
+            using var residency = new MappedPackResidency(pool);
+            using var reading = new ManualResetEventSlim();
+            using var finishRead = new ManualResetEventSlim();
+            int reads = 0;
+            residency.ReadAt = (handle, buffer, offset) =>
+            {
+                if (Interlocked.Increment(ref reads) == 1)
+                {
+                    reading.Set();
+                    finishRead.Wait(TimeSpan.FromSeconds(10));
+                }
+                return RandomAccess.Read(handle, buffer, offset);
+            };
+            residency.SetSources(new[] { a });
+            residency.Pump(true, 1L << 30, 0);
+            Assert.True(reading.Wait(TimeSpan.FromSeconds(10)));
+
+            // The controller thread releases while a worker is still reading the first chunk.
+            var release = Task.Run(residency.ReleaseAll);
+            bool returnedDuringRead = release.Wait(TimeSpan.FromSeconds(2));
+            finishRead.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            Assert.True(SpinWait.SpinUntil(() => pool.PendingJobs == 0 && pool.RunningJobs == 0, TimeSpan.FromSeconds(10)));
+
+            Assert.True(returnedDuringRead, "ReleaseAll waited for the disk read to finish");
+            PackResidencySnapshot status = residency.Snapshot;
+            Assert.Equal(0, status.MappedFiles);
+            Assert.Equal(0, status.MappedBytes);
+            // A view closed under a worker is an interruption, not a disk error.
+            Assert.Equal(0, status.Errors);
+            Assert.Equal(0, pool.JobsFailed);
         }
 
         [Fact]

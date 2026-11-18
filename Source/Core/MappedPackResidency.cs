@@ -101,6 +101,11 @@ namespace MoreUseResources.Core
         private volatile bool _allowed;
         private bool _disposed;
 
+        internal delegate int ChunkReader(SafeFileHandle handle, Span<byte> buffer, long fileOffset);
+
+        /// <summary>The ordinary read before each touched chunk. Tests replace it to hold a read open.</summary>
+        internal ChunkReader ReadAt = RandomAccess.Read;
+
         public MappedPackResidency(WorkerPool pool, Func<long>? clockMs = null, Func<long>? availableForTouch = null)
         {
             _pool = pool;
@@ -309,20 +314,30 @@ namespace MoreUseResources.Core
             {
                 if (!Live(generation, token) || (_availableForTouch?.Invoke() ?? long.MaxValue)
                     < Math.Min(ChunkBytes, mapping.Length - offset)) return false;
-                lock (mapping.Sync)
+                int want = (int)Math.Min(ChunkBytes, mapping.Length - offset);
+                // An ordinary read first: a failing disk raises IOException here instead of
+                // faulting inside the mapped view below. It runs outside the lock so that
+                // Close (ReleaseAll, SetSources, Dispose) never waits for the disk. The handle is
+                // reference-counted, so closing it during the read only makes the next read throw.
+                try
                 {
-                    if (mapping.Closed) return false;
-                    int want = (int)Math.Min(ChunkBytes, mapping.Length - offset);
-                    // An ordinary read first: a failing disk raises IOException here instead of
-                    // faulting inside the mapped view below.
                     int totalRead = 0;
                     while (totalRead < want)
                     {
-                        int read = RandomAccess.Read(mapping.Handle!, buffer.AsSpan(totalRead, want - totalRead),
+                        int read = ReadAt(mapping.Handle!, buffer.AsSpan(totalRead, want - totalRead),
                             offset + totalRead);
                         if (read <= 0) throw new IOException("Asset pack became shorter while it was mapped.");
                         totalRead += read;
                     }
+                }
+                catch (ObjectDisposedException) when (Volatile.Read(ref mapping.Closed))
+                {
+                    return false;
+                }
+                // Only the touch of the view needs the lock: the pointer is invalid once Close runs.
+                lock (mapping.Sync)
+                {
+                    if (mapping.Closed) return false;
                     byte sink = 0;
                     byte* start = mapping.Pointer + offset;
                     for (int i = 0; i < want; i += PageBytes) sink ^= start[i];
