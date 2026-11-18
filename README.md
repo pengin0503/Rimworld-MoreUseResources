@@ -150,3 +150,14 @@ Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithの
 ### Windows実機での比較測定
 
 起動時間、TPS、フレーム時間、RAM・VRAM使用量を測る手順は、[Windows実機測定ガイド](docs/testing/windows-waylith-benchmark-ja.md)を参照してください。
+
+### Linux VM でのベンチマーク（ゲームなし）
+
+MODのCoreコードをLinux上で直接動かし、ワーカー数ごとの処理速度、CPU・RAM・I/O・GC、停止と再開、メモリ不足、I/O障害、長時間実行でのリークを測ります。FPS・TPSは測りません。ベンチマークのコードは`Benchmarks/`にあり、配布ZIPには入りません。
+
+```sh
+tools/benchmark/setup-ubuntu.sh
+tools/benchmark/run-gcp-benchmark.sh smoke
+```
+
+Google Cloud VM での手順と結果の読み方は[GCPベンチマーク実行手順](docs/testing/gcp-benchmark-ja.md)、測定の設計と分かったことは[設計書](docs/superpowers/specs/2026-11-18-gcp-benchmark-design-ja.md)を参照してください。

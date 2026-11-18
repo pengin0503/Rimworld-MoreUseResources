@@ -37,3 +37,31 @@ jobs:
           name: Rimworld-MoreUseResources
           path: dist/Rimworld-MoreUseResources.zip
           if-no-files-found: error
+
+  # Short benchmark on generated data only. Long, high-load and real-data runs are started by hand
+  # on a VM (docs/testing/gcp-benchmark-ja.md); none of them run here.
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+      - name: Benchmark unit tests
+        run: dotnet test Benchmarks/Tests/MoreUseResources.Benchmarks.Tests.csproj -c Release
+      - name: Build the benchmark
+        run: dotnet build Benchmarks/MoreUseResources.Benchmarks.csproj -c Release
+      - name: Smoke run on generated data
+        run: >
+          dotnet Benchmarks/bin/Release/net10.0/MoreUseResources.Benchmarks.dll run
+          --mode smoke --workers 1,2 --trials 1 --warmup 0 --rate-window-s 2 --max-runtime-min 12
+          --generate "$RUNNER_TEMP/mur-generated" --generate-mib 16 --out bench-results --label ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-smoke
+          path: bench-results/
+          if-no-files-found: warn

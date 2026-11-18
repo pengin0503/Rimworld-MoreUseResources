@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Linux benchmark for the mod's background work. It links the same MoreUseResources.Core sources
+    the mod compiles, so every scenario runs the real worker pool, file cache, audit and controller.
+    Nothing from this project is copied into Assemblies/ or the packaged mod (tools/package_mod.py).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MoreUseResources.Benchmarks</RootNamespace>
+    <AssemblyName>MoreUseResources.Benchmarks</AssemblyName>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Same collector defaults as RimWorld.runtimeconfig.json (no GC settings: workstation, concurrent).
+         Variants are selected per process with DOTNET_gcServer / DOTNET_gcConcurrent by the run script. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Source/Core/MoreUseResources.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Tests/**" />
+    <InternalsVisibleTo Include="MoreUseResources.Benchmarks.Tests" />
+  </ItemGroup>
+</Project>

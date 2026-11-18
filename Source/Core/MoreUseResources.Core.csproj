@@ -12,5 +12,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MoreUseResources.Tests" />
+    <!-- The Linux benchmark drives the same discovery code as the mod. This attribute is only
+         emitted into MoreUseResources.Core.dll; the shipped mod DLL compiles these sources itself. -->
+    <InternalsVisibleTo Include="MoreUseResources.Benchmarks" />
   </ItemGroup>
 </Project>
