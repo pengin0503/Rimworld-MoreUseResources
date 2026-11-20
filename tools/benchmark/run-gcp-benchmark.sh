@@ -11,7 +11,10 @@
 #   tools/benchmark/run-gcp-benchmark.sh test                      unit tests only
 #
 # Options (all optional):
-#   --data DIR            real data from fetch-r2-dataset.py (default: generated data)
+#   --data DIR            real data from fetch-r2-dataset.py (default: generated data). When DIR
+#                         does not exist or its download did not finish and R2_ENDPOINT is set,
+#                         the data is downloaded first (resuming a partial download)
+#   --fetch-profile P     what that download takes: smoke, game (default) or all
 #   --out DIR             results root (default: ~/mur-bench-results)
 #   --cpus N|LIST         run on N CPUs (0..N-1) or a taskset list such as 0-3,8-11
 #   --workers LIST        worker counts, e.g. 1,2,4,8,16
@@ -40,14 +43,16 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 bench_proj="$repo/Benchmarks/MoreUseResources.Benchmarks.csproj"
 bench_dll="$repo/Benchmarks/bin/Release/net10.0/MoreUseResources.Benchmarks.dll"
 
-usage() { sed -n '2,36p' "${BASH_SOURCE[0]}"; }
+usage() { sed -n '2,39p' "${BASH_SOURCE[0]}"; }
 
 [ $# -ge 1 ] || { usage; exit 2; }
+case "$1" in -h|--help) usage; exit 0 ;; esac
 command=$1
 shift
 
 data="" out="$HOME/mur-bench-results" cpus="" workers="" trials="" warmup="" scenarios="" budget=""
 max_files="" max_mib="" max_runtime="" hours="" gc_variants="default" root_cold=0 run_tests=0 label=""
+fetch_profile="game"
 positional=() extra=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -67,12 +72,37 @@ while [ $# -gt 0 ]; do
     --root-cold) root_cold=1; shift ;;
     --tests) run_tests=1; shift ;;
     --label) label=$2; shift 2 ;;
+    --fetch-profile) fetch_profile=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --) shift; extra=("$@"); break ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) positional+=("$1"); shift ;;
   esac
 done
+
+case "$fetch_profile" in smoke|game|all) ;; *) echo "--fetch-profile takes smoke, game or all" >&2; exit 2 ;; esac
+
+# Real data is checked, and downloaded when missing, before anything is built: a run must not stop
+# after the build because its input is absent.
+if [ -n "$data" ] && [ "$command" != "analyze" ] && [ "$command" != "compare" ] && [ "$command" != "test" ]; then
+  incomplete=0
+  [ -d "$data" ] || incomplete=1
+  if [ -f "$data/.r2-download-state.json" ] && [ ! -f "$data/r2-dataset.json" ]; then incomplete=1; fi
+  if [ "$incomplete" -eq 1 ]; then
+    if [ -z "${R2_ENDPOINT:-}" ]; then
+      echo "data directory not found or incomplete: $data" >&2
+      echo "set R2_ENDPOINT, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and rerun to download it," >&2
+      echo "or download it yourself: python3 -I tools/benchmark/fetch-r2-dataset.py $data --profile $fetch_profile" >&2
+      echo "or leave out --data to measure on generated data" >&2
+      exit 2
+    fi
+    echo "downloading R2 data (profile $fetch_profile) into $data before measuring"
+    if ! python3 -I "$repo/tools/benchmark/fetch-r2-dataset.py" "$data" --profile "$fetch_profile"; then
+      echo "the download failed (message above); nothing was measured. Rerun the same command to resume it." >&2
+      exit 1
+    fi
+  fi
+fi
 
 dotnet_bin=$(command -v dotnet) || { echo "dotnet not found: run tools/benchmark/setup-ubuntu.sh first" >&2; exit 1; }
 mkdir -p "$out"

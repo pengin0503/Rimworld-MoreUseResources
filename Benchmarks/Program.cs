@@ -151,7 +151,10 @@ public static class Program
         }
         PathRedactor.Configure(roots, o.OutputDirectory, scratch);
         foreach (string r in roots)
-            if (!Directory.Exists(r)) throw new ArgumentException("data directory not found: " + r);
+            if (!Directory.Exists(r))
+                throw new ArgumentException("data directory not found: " + r
+                    + " (download it with: python3 -I tools/benchmark/fetch-r2-dataset.py " + r
+                    + " --profile game; or leave out --data to use generated data)");
         var load = Stopwatch.StartNew();
         Dataset dataset = Dataset.Load(roots, o.PackFiles, o.MaxFiles, o.MaxMiB * 1048576L, o.FingerprintContent, kind, generator, cts.Token);
         Log($"dataset: {dataset.Mods.Count} roots, {dataset.LoadFolders.Count} load folders, {dataset.Files.Count}/{dataset.DiscoveredFiles.Count} files "

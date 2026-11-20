@@ -70,6 +70,8 @@ python3 -I tools/benchmark/fetch-r2-dataset.py ~/mur-data --profile game
 
 ## 4. 実行
 
+`smoke` は `--data` なしなので生成データで動きます。`--data ~/mur-data` を付けた測定は、`~/mur-data` がないか取得が途中で止まっていれば、ビルドの前に R2 から取得します（既定は `game`、`--fetch-profile smoke|all` で変更）。そのため 3 の `export` を済ませておきます。`R2_ENDPOINT` が未設定のときは、取得コマンドを表示して何も測らずに止まります。取得に失敗したときも測定は始めません。同じコマンドを再実行すると、取得を続きから再開します。
+
 ```bash
 tools/benchmark/run-gcp-benchmark.sh smoke                         # まず動作確認
 tools/benchmark/run-gcp-benchmark.sh standard --data ~/mur-data    # 通常の測定
@@ -77,7 +79,11 @@ tools/benchmark/run-gcp-benchmark.sh stress --data ~/mur-data      # 32 ワー�
 tools/benchmark/run-gcp-benchmark.sh soak --hours 4 --data ~/mur-data   # リーク・解放の長時間確認
 ```
 
-SSH が切れても止まらないよう、長い実行は `tmux` か `nohup ... &` の中で始めます。
+SSH が切れても止まらないよう、長い実行は `tmux` か `nohup ... &` の中で始めます。ブラウザの SSH では次の形が簡単です（進み具合は `tail -f ~/standard.log`、Ctrl+C で表示だけ止まります）。
+
+```bash
+nohup tools/benchmark/run-gcp-benchmark.sh standard --data ~/mur-data > ~/standard.log 2>&1 &
+```
 
 | モード | ワーカー数 | 試行（＋ウォームアップ） | 対象ファイル上限 | RAM 予算 | 時間上限 |
 |---|---|---|---|---|---|
