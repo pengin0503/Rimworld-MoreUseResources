@@ -11,8 +11,10 @@ Layout written under DEST (what `--data DEST` expects):
     DEST/Mods/<workshop id>/...       Workshop/<workshop id>/...
     DEST/r2-dataset.json              provenance (profile, object list digest, sizes, date)
 
-Environment: R2_ENDPOINT (required), R2_BUCKET (default rimworld-17), AWS_ACCESS_KEY_ID and
-AWS_SECRET_ACCESS_KEY. Reruns resume: files whose size and ETag match the previous download are kept.
+Environment: R2_ENDPOINT (required, https://<account id>.r2.cloudflarestorage.com), R2_BUCKET
+(default rimworld-17), AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. The S3 API URL that the Cloudflare
+dashboard shows for a bucket ends with "/<bucket>"; that form is accepted too, and the bucket is taken
+from it. Reruns resume: files whose size and ETag match the previous download are kept.
 
 Profiles:
     smoke  Core's data, Assets.zip and 12 Workshop mods spread over the ID range
@@ -28,8 +30,10 @@ import json
 import os
 import sys
 import threading
+import urllib.parse
 
 SCHEMA = 1
+DEFAULT_BUCKET = "rimworld-17"
 ASSET_DIRS = ("Defs", "Patches", "Languages", "Textures", "Sounds")
 # Source/Core/GameAssetFiles.cs: Extensions
 ASSET_EXTENSIONS = {".xml", ".txt", ".png", ".dds", ".jpg", ".jpeg", ".tga", ".psd", ".bmp", ".wav", ".ogg", ".mp3"}
@@ -60,15 +64,79 @@ def wanted(relative):
     return ext in ASSET_EXTENSIONS and any(p in ASSET_DIRS for p in parts[:-1])
 
 
-def client():
+class SetupError(Exception):
+    """A problem with the environment or the bucket that the user has to fix; the message says how."""
+
+
+def endpoint_and_bucket(endpoint, bucket_env):
+    """Returns (endpoint URL without a path, bucket, note or None).
+
+    boto3 appends "/<bucket>/<key>" to the endpoint, so an endpoint that already ends with the bucket
+    (the S3 API URL the Cloudflare dashboard shows) turns every listing into a request for an object
+    named after the bucket, which R2 answers with NoSuchKey. The bucket is therefore moved out of the URL.
+    """
+    endpoint = (endpoint or "").strip()
+    if not endpoint:
+        raise SetupError("R2_ENDPOINT is not set (https://<account id>.r2.cloudflarestorage.com)")
+    if "<" in endpoint or ">" in endpoint or not endpoint.isascii():
+        raise SetupError("R2_ENDPOINT still contains a placeholder; replace <account id> (and the < >) with "
+                         "the 32-character account id: https://0123...cdef.r2.cloudflarestorage.com")
+    parts = urllib.parse.urlsplit(endpoint)
+    if parts.scheme not in ("https", "http") or not parts.netloc:
+        raise SetupError("R2_ENDPOINT must be a URL such as https://<account id>.r2.cloudflarestorage.com")
+    if parts.query or parts.fragment:
+        raise SetupError("R2_ENDPOINT must not contain '?' or '#': https://<account id>.r2.cloudflarestorage.com")
+    segments = [s for s in parts.path.split("/") if s]
+    if len(segments) > 1:
+        raise SetupError("R2_ENDPOINT has a path (" + parts.path + "); give only "
+                         "https://<account id>.r2.cloudflarestorage.com and the bucket in R2_BUCKET")
+    bucket_env = (bucket_env or "").strip()
+    path_bucket = segments[0] if segments else ""
+    if path_bucket and bucket_env and path_bucket != bucket_env:
+        raise SetupError(f"R2_ENDPOINT ends with the bucket '{path_bucket}' but R2_BUCKET is '{bucket_env}'; "
+                         "remove one of them")
+    note = None
+    if path_bucket:
+        note = (f"note: R2_ENDPOINT ended with '/{path_bucket}'; using bucket '{path_bucket}' and the endpoint "
+                "without it")
+    clean = urllib.parse.urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    return clean, bucket_env or path_bucket or DEFAULT_BUCKET, note
+
+
+def check_credentials(environ):
+    """Rejects key variables that still hold the documentation's placeholders ("..." or "<...>")."""
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        value = (environ.get(name) or "").strip()
+        if value and (value.strip(".") == "" or "<" in value or ">" in value or not value.isascii()):
+            raise SetupError(f"{name} still contains a placeholder; set it to the key of an R2 API token")
+
+
+def explain(error, bucket, what):
+    """A message for a failed R2 request: what was asked for, what R2 answered and what to check."""
+    response = getattr(error, "response", None) or {}
+    code = str(response.get("Error", {}).get("Code", "")) or type(error).__name__
+    message = str(response.get("Error", {}).get("Message", "")) or str(error)
+    hint = {
+        "NoSuchBucket": f"the bucket '{bucket}' does not exist for this account; check R2_BUCKET and the account id in R2_ENDPOINT",
+        "NoSuchKey": "R2 answered a listing with NoSuchKey, which happens when R2_ENDPOINT has a path",
+        "404": "the object was listed but is gone now; rerun to download the current listing",
+        "AccessDenied": "the key pair cannot read this bucket; check AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY",
+        "403": "the key pair cannot read this bucket; check AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY",
+        "Unauthorized": "R2 did not accept the key pair; check AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY",
+        "InvalidAccessKeyId": "AWS_ACCESS_KEY_ID is not an R2 key of this account",
+        "SignatureDoesNotMatch": "AWS_SECRET_ACCESS_KEY does not match AWS_ACCESS_KEY_ID",
+        "NoCredentialsError": "set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (an R2 API token)",
+        "EndpointConnectionError": "R2_ENDPOINT cannot be reached; check the URL and the network",
+    }.get(code, "")
+    return f"{what}: {code}: {message}" + (f" ({hint})" if hint else "")
+
+
+def client(endpoint):
     try:
         import boto3  # noqa: PLC0415
         from botocore.config import Config  # noqa: PLC0415
     except ImportError:
         sys.exit("boto3 is required: python3 -m pip install --user boto3 (or apt-get install python3-boto3)")
-    endpoint = os.environ.get("R2_ENDPOINT")
-    if not endpoint:
-        sys.exit("R2_ENDPOINT is not set (https://<account>.r2.cloudflarestorage.com)")
     return boto3.client("s3", endpoint_url=endpoint, config=Config(retries={"max_attempts": 8, "mode": "adaptive"}, max_pool_connections=32))
 
 
@@ -100,31 +168,57 @@ def workshop_ids(s3, bucket):
         token = page["NextContinuationToken"]
 
 
-def plan(s3, bucket, profile, explicit_ids):
-    """Returns [(key, local relative path, size, etag)] and the Workshop ids used."""
+def top_prefixes(s3, bucket):
+    page = s3.list_objects_v2(Bucket=bucket, Delimiter="/")
+    return [p["Prefix"] for p in page.get("CommonPrefixes", [])]
+
+
+def plan(s3, bucket, profile, explicit_ids, warn=print):
+    """Returns [(key, local relative path, size, etag)] and the Workshop ids used.
+
+    Raises SetupError, naming the key or prefix it looked for, when the bucket lacks what the profile needs.
+    """
     items = []
-    game_sources = [GAME_PREFIX + "Assets.zip", GAME_PREFIX + "Data/" + ("Core/" if profile == "smoke" else "")]
+    data_prefix = GAME_PREFIX + "Data/" + ("Core/" if profile == "smoke" else "")
+    game_sources = [GAME_PREFIX + "Assets.zip", data_prefix]
     for source in game_sources:
         for obj in walk(s3, bucket, source):
             key = obj["Key"]
             rel = key[len(GAME_PREFIX):]
             if rel == "Assets.zip" or (rel.startswith("Data/") and wanted(rel)):
                 items.append((key, "Game/" + canonical(rel), obj["Size"], obj["ETag"].strip('"')))
+    missing = []
+    if not any(rel == "Game/Assets.zip" for _, rel, _, _ in items):
+        missing.append(GAME_PREFIX + "Assets.zip")
+    if not any(rel.startswith("Game/Data/") for _, rel, _, _ in items):
+        missing.append(data_prefix + " (Defs, Patches, Languages, Textures or Sounds)")
+    if missing:
+        raise SetupError(f"not found in bucket '{bucket}': " + ", ".join(missing)
+                         + "; top-level folders there: " + (", ".join(top_prefixes(s3, bucket)) or "none"))
     if explicit_ids:
         ids = explicit_ids
     elif profile == "game":
         ids = []
     else:
         ids = workshop_ids(s3, bucket)
+        if not ids:
+            warn(f"warning: no mods under {WORKSHOP_PREFIX} in bucket '{bucket}'; only official data is fetched")
         if profile == "smoke" and len(ids) > SMOKE_MODS:
             step = len(ids) / SMOKE_MODS
             ids = [ids[int(i * step)] for i in range(SMOKE_MODS)]
+    empty = []
     for wid in ids:
         prefix = WORKSHOP_PREFIX + wid + "/"
+        before = len(items)
         for obj in walk(s3, bucket, prefix):
             rel = obj["Key"][len(prefix):]
             if wanted(rel):
                 items.append((obj["Key"], "Mods/" + wid + "/" + canonical(rel), obj["Size"], obj["ETag"].strip('"')))
+        if len(items) == before:
+            empty.append(wid)
+    if explicit_ids and empty:
+        raise SetupError(f"no files the benchmark reads under {WORKSHOP_PREFIX}<id>/ in bucket '{bucket}' for: "
+                         + ", ".join(empty))
     # Two keys that differ only in case would overwrite each other, as they would on Windows: keep the first.
     seen = set()
     unique = []
@@ -153,12 +247,24 @@ def main():
     parser.add_argument("--prune", action="store_true", help="delete files under Game/ and Mods/ that are not in the plan")
     args = parser.parse_args()
 
-    bucket = os.environ.get("R2_BUCKET", "rimworld-17")
-    s3 = client()
     explicit = [x.strip() for x in args.workshop_ids.split(",") if x.strip()]
     if any(not x.isdigit() for x in explicit):
         sys.exit("--workshop-ids takes numeric Workshop ids")
-    items, ids = plan(s3, bucket, args.profile, explicit)
+    try:
+        endpoint, bucket, note = endpoint_and_bucket(os.environ.get("R2_ENDPOINT"), os.environ.get("R2_BUCKET"))
+        check_credentials(os.environ)
+    except SetupError as ex:
+        sys.exit(str(ex))
+    if note:
+        print(note, file=sys.stderr)
+    s3 = client(endpoint)
+    from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415 (present once client() succeeded)
+    try:
+        items, ids = plan(s3, bucket, args.profile, explicit, warn=lambda m: print(m, file=sys.stderr))
+    except SetupError as ex:
+        sys.exit(str(ex))
+    except (BotoCoreError, ClientError) as ex:
+        sys.exit(explain(ex, bucket, f"listing bucket '{bucket}' failed"))
     total = sum(size for _, _, size, _ in items)
     print(f"plan: {len(items)} files, {total / 2**30:.2f} GiB, {len(ids)} Workshop mods, profile {args.profile}")
     if not items:
@@ -192,7 +298,10 @@ def main():
             return
         os.makedirs(os.path.dirname(path), exist_ok=True)
         part = path + ".part"
-        s3.download_file(bucket, key, part)
+        try:
+            s3.download_file(bucket, key, part)
+        except (BotoCoreError, ClientError) as ex:
+            raise IOError(explain(ex, bucket, "download of " + key)) from ex
         if os.path.getsize(part) != size:
             os.remove(part)
             raise IOError("size mismatch for " + key)
@@ -218,7 +327,9 @@ def main():
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f)
     if errors:
-        print(f"{len(errors)} downloads failed, e.g. {errors[0]}; rerun to resume", file=sys.stderr)
+        print(f"{len(errors)} of {len(items)} downloads failed; rerun to resume. First failures:", file=sys.stderr)
+        for message in errors[:5]:
+            print("  " + message, file=sys.stderr)
         sys.exit(1)
 
     if args.prune:

@@ -52,6 +52,8 @@ jobs:
           dotnet-version: 10.0.100
       - name: Benchmark unit tests
         run: dotnet test Benchmarks/Tests/MoreUseResources.Benchmarks.Tests.csproj -c Release
+      - name: R2 dataset fetcher unit tests (no network)
+        run: python3 -I -m unittest discover -s tools/benchmark/tests -v
       - name: Build the benchmark
         run: dotnet build Benchmarks/MoreUseResources.Benchmarks.csproj -c Release
       - name: Smoke run on generated data

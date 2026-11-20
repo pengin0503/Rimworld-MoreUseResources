@@ -20,11 +20,16 @@ e2 系は CPU が他テナントと共有されるため値がぶれます。比
 ## 2. セットアップ
 
 ```bash
-git clone https://github.com/pengin0503/Rimworld-MoreUseResources.git
+cd ~
+[ -d Rimworld-MoreUseResources ] || git clone https://github.com/pengin0503/Rimworld-MoreUseResources.git
 cd Rimworld-MoreUseResources
+git fetch origin
 git checkout claude/project-thread-8c4csj
+git pull --ff-only
 tools/benchmark/setup-ubuntu.sh --delayacct
 ```
+
+前に作ったコピーが VM に残っていても、この手順で最新になります。`git checkout` の「Your branch is up to date」は VM が最後に取り込んだ時点との比較なので、`git fetch` と `git pull` を省くと古いままです（ベンチマークは 2026-11-18 に追加したので、それより前のコピーには `tools/benchmark/` がなく、`No such file or directory` になります）。`git pull` がローカルの変更で止まったら、`git status` で確認してください。
 
 `setup-ubuntu.sh` は足りないもの（.NET 10 SDK、python3-boto3、taskset など）だけを apt で入れます。.NET SDK 10.0.100 が入っていればそのまま使います。`--delayacct` はスレッド別の I/O 待ち時間（`io_wait_ms`）の記録を再起動まで有効にします。`--check` は確認だけを行います。
 
@@ -34,9 +39,11 @@ tools/benchmark/setup-ubuntu.sh --delayacct
 
 実データは R2 から必要なものだけを取得します。キーはシェルの環境変数に入れ、リポジトリやファイルには書きません。
 
+次の 2 行の `アカウントID`・`アクセスキーID`・`シークレット` は、実際の値に置き換えてから実行します。アカウント ID は 32 文字の英数字です。キーは Cloudflare の R2 の API トークン（このバケットの読み取りだけで足ります）を作ると表示されるアクセスキー ID とシークレットアクセスキーです。そのまま貼り付けると、取得スクリプトが「still contains a placeholder」と表示して止まります。なお `<` `>` で囲んだ形のまま引用符なしで貼ると、bash が `<` を入力の切り替えと解釈して `No such file or directory` になり、変数は設定されません。
+
 ```bash
-export R2_ENDPOINT=https://<アカウントID>.r2.cloudflarestorage.com
-export AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...
+export R2_ENDPOINT='https://アカウントID.r2.cloudflarestorage.com'
+export AWS_ACCESS_KEY_ID='アクセスキーID' AWS_SECRET_ACCESS_KEY='シークレット'
 python3 -I tools/benchmark/fetch-r2-dataset.py ~/mur-data --profile game --list   # 計画だけ表示
 python3 -I tools/benchmark/fetch-r2-dataset.py ~/mur-data --profile game
 ```
@@ -48,6 +55,18 @@ python3 -I tools/benchmark/fetch-r2-dataset.py ~/mur-data --profile game
 | `all` | `game` と Workshop の全 MOD（281 個） | 44,998 ファイル、1.83 GiB |
 
 取得するのは MOD の探索対象（Defs・Patches・Languages・Textures・Sounds の対象拡張子）と About.xml、loadFolders.xml、Assets.zip だけです。DLL や言語 .tar は取りません。Windows と同じく大文字小文字を区別せずに読めるよう、これらのフォルダ名は正規の綴りにそろえます。再実行すると取得済みのファイルは飛ばします。プロファイルを変えたときは `--prune` で計画外のファイルを消します。取得元と一覧の SHA-256 は `~/mur-data/r2-dataset.json` に残ります。
+
+バケット名は `R2_BUCKET`（既定 `rimworld-17`）で指定します。Cloudflare の画面に出る S3 API の URL（末尾が `/rimworld-17`）を `R2_ENDPOINT` にそのまま入れてもかまいません。その場合は末尾をバケット名として扱い、`note: R2_ENDPOINT ended with ...` と表示します。2026-11-18 版のスクリプトはこの形に対応しておらず、一覧の取得で `NoSuchKey: The specified key does not exist` になっていました。
+
+取得に失敗したときは、要求したもの（バケット・キー・接頭辞）と R2 の応答を表示して終了します。主なメッセージと対処:
+
+| 表示 | 原因と対処 |
+|---|---|
+| `not found in bucket ...: Game-Windows/Assets.zip ...` | バケットに必要なキーがない。続けて表示されるバケット直下のフォルダ一覧と `R2_BUCKET` を確かめる |
+| `NoSuchBucket` | バケット名かアカウント ID の誤り |
+| `Unauthorized`、`AccessDenied`、`InvalidAccessKeyId`、`SignatureDoesNotMatch` | `AWS_ACCESS_KEY_ID`・`AWS_SECRET_ACCESS_KEY` の誤りか、そのキーにバケットの読み取り権限がない |
+| `no files the benchmark reads under Workshop/<id>/` | `--workshop-ids` に指定した MOD が R2 にないか、対象ファイルを持たない |
+| `N of M downloads failed` | 失敗したキーを最大 5 件表示する。再実行すると続きから取得する |
 
 ## 4. 実行
 
