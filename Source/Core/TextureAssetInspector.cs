@@ -62,7 +62,14 @@ namespace MoreUseResources.Core
                 IoBufferSize, FileOptions.SequentialScan);
             if (stream.Length > MaxImageBytes)
                 return new TextureAssetReport(kind, TextureAssetState.Skipped);
-            return kind == TextureAssetKind.Png ? InspectPng(stream, token) : InspectDds(stream, token);
+            try
+            {
+                return kind == TextureAssetKind.Png ? InspectPng(stream, token) : InspectDds(stream, token);
+            }
+            finally
+            {
+                ModFileReads.Add(ModFileReads.Buffered(stream.Position, stream.Length, IoBufferSize));
+            }
         }
 
         private static TextureAssetReport InspectDds(FileStream stream, CancellationToken token)

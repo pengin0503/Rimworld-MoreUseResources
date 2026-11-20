@@ -5,7 +5,7 @@ using Verse;
 namespace MoreUseResources;
 
 /// <summary>
-/// Rebuilds changed map sections before they come into view (RimWorld 1.7.5011 rev24).
+/// Rebuilds changed map sections before they come into view (RimWorld 1.7.5011 rev24; the same declarations in 1.7.5014 rev1195).
 ///
 /// A changed section outside the view is only flagged; the game rebuilds its layers in
 /// <c>Section.DrawSection</c> on the frame it becomes visible. Calling the game's own

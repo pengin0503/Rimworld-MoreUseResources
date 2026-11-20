@@ -35,7 +35,9 @@ public static class TextureDemandHistory
         {
             var file = new FileInfo(path);
             if (!file.Exists || file.Length <= 0 || file.Length > MaxFileBytes) return Array.Empty<TextureDemandSample>();
-            Document? document = JsonSerializer.Deserialize<Document>(File.ReadAllBytes(path));
+            byte[] bytes = File.ReadAllBytes(path);
+            ModFileReads.Add(bytes.Length);
+            Document? document = JsonSerializer.Deserialize<Document>(bytes);
             if (document == null || document.Schema != Schema || document.Entries == null
                 || !string.Equals(document.Fingerprint, fingerprint, StringComparison.Ordinal))
                 return Array.Empty<TextureDemandSample>();

@@ -1,12 +1,12 @@
 # Windows版 RimWorld 1.7 の実機測定手順
 
-対象は Windows 11、RimWorld 1.7.5011 rev24（Waylith）、MoreUseResources の PR #5 です。想定機は Ryzen 7 9700X、RX 7800 XT 16 GB、RAM 32 GB、2560×1440／144 Hzです。各機能を個別に切り替え、起動、TPS、フレーム時間、RAM、VRAMのどこに効果が出るかを測ります。
+対象は Windows 11、RimWorld 1.7.5011 rev24（Waylith）、MoreUseResources の main です（PR #5 は 7f3055b でマージ済み）。想定機は Ryzen 7 9700X、RX 7800 XT 16 GB、RAM 32 GB、2560×1440／144 Hzです。各機能を個別に切り替え、起動、TPS、フレーム時間、RAM、VRAMのどこに効果が出るかを測ります。
 
 > このガイドは利用者が別途実測するときの資料です。[今回の実装の完了確認](../superpowers/plans/2026-11-17-performance-mod-resource-coexistence-ja.md)は単体テスト・静的確認・Releaseビルド・配布物検証で行います。
 
 ## 1. 測定環境を固定
 
-1. PR #5 の成功した GitHub Actions から `Rimworld-MoreUseResources` を取得し、ZIPを展開して同じコミットのDLLを使います。対象コミット、RimWorldのビルド番号、AMDドライバー版、Windowsビルドを記録します。
+1. main の成功した GitHub Actions（Build and test）から `Rimworld-MoreUseResources` を取得し、ZIPを展開して同じコミットのDLLを使います。対象コミット、RimWorldのビルド番号、AMDドライバー版、Windowsビルドを記録します。
 2. 現在の `ModsConfig.xml` と各MOD設定、検証に使うセーブを別フォルダへコピーします。セーブは検証用の別名にし、毎回同じコピーを読み込みます。オートセーブは全条件で同じ設定にし、TPS／フレーム計測の最中には発生させません。
 3. Harmony、WOWGAG's Performance Patch、Axen's Performance Enhancements、Overclockをいつものロード順で有効にします。各バージョンと並列処理オプションの状態を記録します。初回セットではOverclockとWOWGAGの実験的な並列Pawn処理をOFFにして固定し、普段それらを使う場合は別セットで実施します。
 4. 解像度、表示モード、VSync、FPS制限、ゲーム速度上限、カメラ位置、ズーム、AMDの電源／クロック設定を固定します。Steamのダウンロードや録画など、試行ごとに変動する負荷を避けます。FPS／TPSオーバーレイを使う場合は全条件で同じものを表示します。
@@ -27,7 +27,7 @@
 
 ### 併用変更前に採っておく比較
 
-基準のDLLはPR #5の `94ed10a` とし、A（3 MODのみ）とC（現行の実アセット積極活用）の組み合わせを同じセーブで各3回記録します。詳細は[併用設計](../superpowers/specs/2026-11-17-performance-mod-resource-coexistence-ja.md)を参照してください。
+基準のDLLはPR #5で作った `94ed10a`（main の履歴にあります）とし、A（3 MODのみ）とC（現行の実アセット積極活用）の組み合わせを同じセーブで各3回記録します。詳細は[併用設計](../superpowers/specs/2026-11-17-performance-mod-resource-coexistence-ja.md)を参照してください。
 
 | 事前確認 | 現行版で行う操作 | 比較できる結果 |
 | --- | --- | --- |
@@ -44,7 +44,7 @@
 5. ロード時間が改善したかは外部の総時間と工程ログを照合します。パックI/Oが減ったかの確認には読み取りMiB、GPU圧縮では初回生成時間・キャッシュ容量・描画を記録します。
 
 ```powershell
-$game = 'D:\SteamLibrary\steamapps\common\RimWorld\RimWorldWin64.exe'
+$game = 'D:\SteamLibrary\steamapps\common\RimWorld\RimWorld.exe'
 $launcher = '.\tools\Start-RimWorldGc.ps1'
 $manifest = 'D:\RimWorldUserData\MoreUseResources-StartupPacks.json'
 & $launcher -GameExecutable $game -Profile Default

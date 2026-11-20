@@ -40,6 +40,7 @@ public sealed record GcBenchmark(GamePhase Phase, double CollectionsPerMinute, d
             using var input = File.OpenRead(path);
             if (input.Length > 4096) return null;
             var sample = JsonSerializer.Deserialize<GcBenchmark>(input);
+            ModFileReads.Add(input.Position);
             return sample is { HeapBytes: >= 0, CommittedBytes: >= 0, CollectionsPerMinute: >= 0, PauseMsPerMinute: >= 0,
                 AllocatedMiBPerSecond: >= 0 } && Enum.IsDefined(sample.Phase) && Enum.IsDefined(sample.Latency)
                 ? sample : null;

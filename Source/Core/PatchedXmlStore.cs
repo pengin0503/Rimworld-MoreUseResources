@@ -55,6 +55,7 @@ public static class PatchedXmlStore
             input.ReadExactly(payload);
             Span<byte> storedHash = stackalloc byte[HashSize];
             input.ReadExactly(storedHash);
+            ModFileReads.Add(length);
             if (!storedHash.SequenceEqual(SHA256.HashData(payload))) return null;
 
             using var stream = new MemoryStream(payload, writable: false);

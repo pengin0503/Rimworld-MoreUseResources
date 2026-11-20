@@ -27,8 +27,10 @@ namespace MoreUseResources.Core
 
         public static GcCounters ReadProcess()
         {
+            // GetTotalMemory subtracts the unused part of every thread's allocation context; while other threads
+            // allocate on a small heap it can come out below zero (seen in the tests), which means "about nothing".
             return new GcCounters(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
-                GC.GetTotalPauseDuration().TotalMilliseconds, GC.GetTotalMemory(false), GC.GetTotalAllocatedBytes(false), GC.GetGCMemoryInfo().TotalCommittedBytes);
+                GC.GetTotalPauseDuration().TotalMilliseconds, Math.Max(0, GC.GetTotalMemory(false)), GC.GetTotalAllocatedBytes(false), GC.GetGCMemoryInfo().TotalCommittedBytes);
         }
     }
 

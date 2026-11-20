@@ -38,6 +38,7 @@ internal sealed class TexturePrewarm
     private long nextWorkMs;
     private bool scanComplete => uploadScan.Completed;
     private bool demandPublished;
+    private bool suspended;
 
     internal string StatusKey { get; private set; } = "MUR_GpuDisabled";
     internal VramInfo Memory { get; private set; }
@@ -59,12 +60,28 @@ internal sealed class TexturePrewarm
     internal void OfferHistory(IReadOnlyList<TextureDemandSample> samples) =>
         System.Threading.Volatile.Write(ref offeredHistory, samples);
 
-    internal static bool SupportedBuild => OperatingSystem.IsWindows()
-        && VersionControl.CurrentMajor == 1 && VersionControl.CurrentMinor == 7
-        && VersionControl.CurrentBuild == 5011 && VersionControl.CurrentRevision == 24;
+    internal static bool SupportedBuild => SupportedGame.Contains(VersionControl.CurrentMajor, VersionControl.CurrentMinor);
+
+    /// <summary>Stops prewarming for this session after an exception outside <see cref="Step"/>, such as an engine member this build lacks.</summary>
+    internal void Suspend(Exception ex)
+    {
+        if (suspended) return;
+        suspended = true;
+        StatusKey = "MUR_GpuFault";
+        try
+        {
+            ResetScan();
+            DisableTracking();
+        }
+        catch (Exception cleanup) when (cleanup is not OutOfMemoryException)
+        {
+        }
+        Log.Warning("[More Use Resources] Texture prewarming suspended. " + ex.GetType().Name + ": " + ex.Message);
+    }
 
     internal void Update(GamePhase phase, ResourceActivation activation, ResourceSettings settings, bool throttled, bool ready)
     {
+        if (suspended) return;
         if (!settings.Enabled || !settings.GpuEnabled || !settings.GpuDemandPriority) DisableTracking();
         if (!settings.GpuEnabled)
         {
@@ -280,6 +297,7 @@ internal sealed class TexturePrewarm
         nextWorkMs = now + delayMs;
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
     internal static bool TryReadTextureHeap(out VramInfo memory)
     {
         memory = default;

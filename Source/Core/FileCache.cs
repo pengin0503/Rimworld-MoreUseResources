@@ -429,6 +429,7 @@ namespace MoreUseResources.Core
                 hash.AppendData(new ReadOnlySpan<byte>(dest + offset, got));
                 offset += got;
                 Interlocked.Add(ref _bytesRead, got);
+                ModFileReads.Add(got);
             }
             fingerprint = Convert.ToHexString(hash.GetHashAndReset());
             return true;
@@ -453,6 +454,7 @@ namespace MoreUseResources.Core
                     hash?.AppendData(buffer, 0, got);
                     offset += got;
                     Interlocked.Add(ref _bytesRead, got);
+                    ModFileReads.Add(got);
                 }
                 if (hash != null)
                     fingerprint = Convert.ToHexString(hash.GetHashAndReset());

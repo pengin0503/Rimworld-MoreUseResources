@@ -1,6 +1,6 @@
 # Rimworld-MoreUseResources
 
-RimWorld 1.7で、CPUワーカー・RAM・VRAMを動作フェーズごとに使うMODです。基準は **Windows 1.7.5011 rev24 / .NET 10 / Waylith** です。
+RimWorld 1.7で、CPUワーカー・RAM・VRAMを動作フェーズごとに使うMODです。**RimWorld 1.7 のすべてのビルドで動きます**（ビルド番号では機能を止めません）。静的に確かめた基準は Windows 1.7.5011 rev24 / .NET 10 / Waylith です。
 
 ## 導入
 
@@ -21,6 +21,7 @@ RimWorld 1.7で、CPUワーカー・RAM・VRAMを動作フェーズごとに使�
 - **OSファイルキャッシュ再先読み**では、初回の読み取り完了後に設定した間隔（初期5分、0で無効、最大120分）で有効MODの実アセットを再読込します。一度読み込んだファイルも対象となるため、OSが破棄したファイルキャッシュの再形成を試みられます。RAMコピーを保持しているファイルは初回読取時のSHA-256と再先読み時のSHA-256を比較します。**内容が変わった場合のみ古いRAMコピーを個別に解放**し、既存の30秒クールダウン後に実ファイルを読み直します。同じファイルの二重確保を避け、変わっていないコピーは保持します。ゲームはこれらの私有コピーを参照せず、OSのファイルキャッシュを利用します。失敗・停止・メモリ不足・予約解放後の再試行には既存の安全ガードとクールダウンを適用します。SSDからの実読み込み量が増える場合があり、FPS/TPS改善は未検証です。
 - 「今すぐ実行」は手動で強度100%にします。セーブ、非アクティブ時、ワールド画面の設定、メモリ予算は引き続き適用されます。「RAM解放」はMODが保持するコピーと予約を解放して一時停止します。「自動」でフェーズ制御に戻ります。
 - 状態欄にフェーズ、ワーカー枠、CPUワーカーが使用する全論理CPU比率、FPS・TPS、フレーム間隔（約1秒間隔で更新）、**OSファイルキャッシュ再先読み完了回数**、アセット検査の進捗・再検査回数・変更検出数、コピー・予約した容量、プロセスのワーキングセット、GPUの最終予算サンプルと保留テクスチャ件数を表示します。FPS・TPSはMOD導入後のゲーム内計測であり、導入前との差分は自動判定しません。
+- 状態欄の一番上の **状態をコピー** は、状態欄の全行、ゲームの版、MOD数、論理CPU数、VRAMの使用量と予算、全設定をクリップボードに入れ、同じ内容を `Player.log` にも `[More Use Resources] Status snapshot:` として書きます。状態欄の「この起動中のプレイ」は、ポーズしていない10秒の区間だけを足した、ゲーム速度と速度の倍率ごとの平均です（TPSと目標に対する割合、FPS、GCの回数と停止時間、確保速度、ゲーム全体・メインスレッド・PC全体のCPU使用率、スレッドの種類別のCPU、メインスレッドの時間のうちティック・マップ更新・UIの割合、JIT時間、I/Oの読み取り量、ハードページフォールト、50 ms・100 msを超えたフレーム数、空きRAMの最小値、RAMへ退避されたテクスチャ数、計測自体にかかった時間）。別のウィンドウに切り替えて更新が止まっていた区間は捨てます。「起動からロード完了までの合計」はCPU、メインスレッド、JIT、GC、読み取り量、スレッド別のCPU秒、ハードページフォールト、アセットパックの統計です。コピーには画面サイズ、フレーム上限、エンジン自身のRAM・VRAM内訳レポートと、`DOTNET_`・`COMPlus_`・`WAYLITH_` で始まる環境変数も入ります。追加の処理は、ティック・マップ更新・UIの呼び出しごとに時計を2回読むことと、10秒ごとのスレッドの読み取りだけです。
 
 ## 実装範囲
 
@@ -40,7 +41,7 @@ RimWorld 1.7で、CPUワーカー・RAM・VRAMを動作フェーズごとに使�
 - **画面外区画の先行更新（実験機能・初期OFF）**: ポーズ中に限り、現在のマップで変更フラグが立っている画面外の区画を、本体自身の再生成メソッドで1フレーム1区画ずつ更新します。本体はこの更新を区画が画面に入るフレームまで遅らせています。更新結果とメッシュの転送は本体とエンジンがそのまま使います。
 - **テクスチャ需要履歴（需要優先がONのとき）**: Waylithが記録した再読み込み回数の順位を `MoreUseResources-TextureDemand.json`（ユーザーデータフォルダ、最大512件・1 MiB）に保存し、次回起動時に同じ画像から先読みします。キーはMODのパッケージIDとコンテンツ内の相対キーで、絶対パスは保存しません。MOD構成と順序、本体ビルド、キャッシュ世代、パックのサイズと更新日時が一致するときだけ使います。今回見なかった画像は回数を半分にして残します。セーブデータには書き込まず、削除しても動作に影響しません。
 - ポートレートの事前準備は実装していません。本体のポートレートキャッシュは最終使用から1秒で期限切れになり、パラメーターが完全一致した場合しか再利用されないため、事前に作っても使われないことを静的に確認しました。
-- GPU先読みは **Windows 1.7.5011 rev24** の単体GPUで、Waylithのテクスチャ用デバイスローカルヒープとVulkanドライバー予算を識別できる場合に、タイトル・通常速度・高速・ポーズの安定したフレームで動きます。起動・ロード・セーブ中にはGPU処理を開始しません。
+- GPU先読みは **RimWorld 1.7** の単体GPUで、Waylithのテクスチャ用デバイスローカルヒープとVulkanドライバー予算を識別できる場合に、タイトル・通常速度・高速・ポーズの安定したフレームで動きます。起動・ロード・セーブ中にはGPU処理を開始しません。
 - GPU先読み対象の幅・高さ上限は初期1024pxで、設定画面から最大4096pxまで拡張可能です。上限を大きくすると既存のゲームテクスチャのうちより大きな画像もGPUへ先読みされますが、フレーム時間の増加や一時的なVRAM圧迫につながる可能性があります。VRAM予算・最低空き容量・フレームガードは継続して適用します。**初期値のままでは対象画像サイズは増えません**。
 - GPU処理は安定フレーム中に最大4テクスチャを段階的に先読みし、成功するたびに実ドライバー予算を更新します。指定時間の目安・フレームガードは維持しますが、単一のアップロードは指定時間を超える場合があります。予算が足りないテクスチャは最大2048件まで一時保留し、後続の小型テクスチャを優先します。**一巡して保留がなくなった後は初期60秒間隔（0でOFF、最大600秒）で再走査**し、Waylithが退避した対象テクスチャの再先読みを試みます。VRAM不足による保留が残る場合は、その処理を優先し新しい一巡を始めません。常駐した画像はWaylithが管理します。VRAMの人工予約、テクスチャの強制退避、GPUの合成負荷は提供していません。
 - WindowsのメモリAPIとLinuxの `/proc/meminfo` をサポートします。OSから使用可能メモリを取得できない環境ではRAM追加確保と先読みを停止します。
@@ -63,7 +64,7 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 対象MOD、設定ファイル、ワーカー数の**3つをすべて指定したときだけ**、そのファイルのワーカー数を書き換えます。1つでも欠けると何も変更せず警告を出します。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -ExternalWorkerOwner Wowgag -ExternalWorkerCount 8 -ExternalSettingsPath "D:\RimWorldUserData\Config\Mod_3797541313_GppMod17.xml"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -ExternalWorkerOwner Wowgag -ExternalWorkerCount 8 -ExternalSettingsPath "D:\RimWorldUserData\Config\Mod_3797541313_GppMod17.xml"
 ```
 
 | 対象 | 設定名・型 | 範囲 | 反映 | 確認元 |
@@ -79,14 +80,14 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 ### 起動前に選んだセーブを先読みする（任意）
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -WarmSaveFile "D:\RimWorldUserData\Saves\Colony.rws"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -WarmSaveFile "D:\RimWorldUserData\Saves\Colony.rws"
 ```
 
 指定した `.rws` を1つだけ読み取り専用で読み、OSファイルキャッシュに載せます。セーブは自動では選ばず、ロードはゲームのメニューから行います。`-WarmSaveBudgetMiB`（初期256）、`-WarmSaveTimeoutSeconds`（初期5）、`-WarmMinFreeMiB`（空き物理RAMの下限、初期6144、0で確認なし）で制限します。パック先読みと合計の容量・時間を共有します。読めない場合は先読みを省略してそのまま起動します。`-NoLaunch` を付けると、ゲームを起動せずに準備だけを行います。
 
 ## ハードウェア活用の実験設定
 
-追加の実験設定は初期OFFです。テクスチャキャッシュ、XMLキャッシュ、GPU設定はWindows 1.7.5011 rev24が対象です。
+追加の実験設定は初期OFFです。テクスチャキャッシュ、XMLキャッシュ、GPU設定も1.7のすべてのビルドが対象です。エンジンに必要なメンバーがないビルドでは、その機能だけが止まり、ほかの機能は動き続けます。
 
 | 設定 | 動作と解除方法 |
 | --- | --- |
@@ -98,13 +99,27 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 | グラフィック資源の事前構築 | タイトル画面とポーズ中に、標準の単一・多方向グラフィック、添付グラフィック、一部の建物用マテリアルを既存のゲームキャッシュへ準備します。GPU先読みと1フレームの処理時間を共有し、構築後も予算を再確認します。単一の処理は予算時間を超える場合があります。 |
 | メッシュの異方性フィルタ | 初期値1×または2×の繰り返し・ミップ付きテクスチャに最大4×を適用します。対応Vulkanデバイスでのみ稼働し、Graphics Settings+やIsoRim系の設定を検出すると停止します。OFFで変更した値を復元し、描画が使用するサンプラーを更新します。 |
 
-GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い、通常起動またはWorkstationで基準を取った後にServerを試してください。ゲーム内の表示で適用された種類を確認できます。
+GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い、Workstation（`-Profile Workstation`）で基準を取った後にServerを試してください。下の「Server GC でゲームを起動する」が ON のとき、通常起動は Server です。ゲーム内の表示で適用された種類を確認できます。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Server -ServerHeapCount 8
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Server -ServerHeapCount 8
 ```
 
-`-ServerHeapCount` を省略するとランタイム既定のヒープ数を使用します。Waylithのカスタムランタイムで環境変数が適用されるか、GC停止時間が改善するかは実機計測が必要です。[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
+`-ServerHeapCount` を省略するとランタイム既定のヒープ数を使用します。
+
+2026-11-20 の実機計測（Windows 11、16 論理 CPU、218 MOD、1.7.5014 rev1195、速度 3）では、`DOTNET_gcServer=1` だけを付けて起動すると Server GC になり、GC の停止は 1.15% から 0.14%、最悪の 10 秒は 179 ms から 73 ms、ロード中の停止は 4.1 s から 1.3 s に減りました。GC のコミット量の増加は約 115 MiB でした（1 回ずつの比較。詳細は [PC での短い計測](docs/testing/pc-quick-measurement-ja.md)）。
+
+この結果から、MOD 設定の RAM の欄に **Server GC でゲームを起動する**（初期 ON）を加えました。`RimWorld.exe` と同じフォルダーにあるゲームの起動設定ファイル `RimWorld.runtimeconfig.json` の `configProperties` に、`"System.GC.Server": true` と目印の `"MoreUseResources.AddedServerGc": true` の 2 行を書きます。GC の種類は起動時に決まるので、Steam からの普通の起動でも、書いた次の起動から Server GC になります（この版を入れた最初の起動は、まだ元の GC です）。
+
+- ほかの行は元のとおりに書き戻します。新しい内容は一時ファイルに書いてから置き換え、書いたあと読み直して確かめます。ファイルが想定と違う形なら変えません。
+- ゲームの更新でファイルが元に戻っても、次の起動で書き直します。
+- OFF にすると、この MOD が書いた 2 行だけを消します。目印のない `System.GC.Server` は、ゲームや利用者が書いたものとして変えません。
+- 環境変数 `DOTNET_gcServer` はファイルより優先されます。
+- MOD を外すときは、先にこの設定を OFF にしてください。OFF にせずに外したときは、Steam の「ゲームファイルの整合性を確認」で元のファイルに戻ります。
+- 適用された種類と、そう決まった理由（環境変数、起動設定ファイル、既定）は、状態欄の「GC の種類」の行に出ます。
+- ファイルを書けないときは、`tools/Start-RimWorld-ServerGc.cmd` をダブルクリックすると、その起動だけ Server GC になります（MOD が `RimWorld\Mods` にあるとき。ほかの場所なら `RimWorld.exe` をこのファイルにドラッグします。Windows ではまだ試していません）。
+
+[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
 
 ## 実アセット積極活用プリセット
 
@@ -117,7 +132,7 @@ GPU先読みはエンジンがアトラス作成後に退避させた元画像�
 対応ビルドでは、Waylithが選んだキャッシュ世代・エンコード方式・インストールID・MODルートのハッシュを照合してZIPを選びます。アセットパックはエンジンが実際に開いたパスを使います。**起動前の先読み用に使用中のアセットパック一覧を出力** をONにしてタイトル画面まで進むと、RimWorldのユーザーデータフォルダに `MoreUseResources-StartupPacks.json` が作成されます。次回起動時に渡すと、一覧とMOD構成・ファイル情報を照合し、予算内のファイルを先読みします。`-WarmPackBudgetMiB` と `-WarmTimeoutSeconds` で読み取り容量と作業時間の目安を指定できます。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -GpuTextureEncoding -StartupPackManifest "D:\RimWorldUserData\MoreUseResources-StartupPacks.json"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -GpuTextureEncoding -StartupPackManifest "D:\RimWorldUserData\MoreUseResources-StartupPacks.json"
 ```
 
 `-GpuTextureEncoding` はそのゲームプロセスの `WAYLITH_LOAD_ENCODE` を `gpu` に設定します。Waylithの条件を満たす画像のブロック圧縮が対象です。対応外の画像はエンジンの通常処理を使い、GPU方式のテクスチャキャッシュには別の名前が使われます。GPU方式で起動した後に作られた一覧を、次回のGPU方式起動で使うとそのキャッシュも先読みできます。
@@ -139,6 +154,8 @@ python3 tools/package_mod.py dist/Rimworld-MoreUseResources.zip
 pwsh -NoProfile -File tools/Test-StartRimWorldGc.ps1
 ```
 
+1.7.5014 rev1195 は本体DLLが手元にないため、参照パッケージ（Krafs.Rimworld.Ref 1.7.5014-unstable）で、このMODが呼ぶ・パッチする・リフレクションで読む型の宣言が5011と同じことと、ビルドが通ることを確かめました。メソッドの中身は比べていません。それ以外の1.7のビルドは確かめていませんが、動作は止めません。
+
 Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithのテクスチャ再アップロードとVRAM予算取得、区画メッシュの変換と転送キュー、シェーダーキャッシュの読み取りの実装を静的に確認しました。他MOD併用時の確認内容と未確認事項は[静的検証の記録](docs/review/2026-11-17-external-mod-coexistence-ja.md)にあります。実ゲームでのMOD起動・設定画面の操作、セーブ／オートセーブ／再ロード、GPU実機での使用量とフレーム時間は別途確認が必要です。
 
 [当初の設計資料](docs/plans/2026-11-16-resource-usage-and-activation-ja.md)
@@ -148,6 +165,8 @@ Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithの
 [ハードウェア活用7件の実装・検証仕様](docs/plans/2026-11-16-hardware-usage-proposals-ja.md)
 
 ### Windows実機での比較測定
+
+ゲームを1回起動して値を貼るだけの短い手順は[PCでの短い計測](docs/testing/pc-quick-measurement-ja.md)にあります。
 
 起動時間、TPS、フレーム時間、RAM・VRAM使用量を測る手順は、[Windows実機測定ガイド](docs/testing/windows-waylith-benchmark-ja.md)を参照してください。
 

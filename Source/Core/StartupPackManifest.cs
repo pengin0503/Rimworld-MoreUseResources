@@ -18,7 +18,10 @@ public sealed record StartupPackManifest(int Schema, string GameDirectory, strin
     public static string? ReadConfigHash(string path)
     {
         using var input = File.OpenRead(path);
-        return input.Length > 4 * 1024 * 1024 ? null : Convert.ToHexString(SHA256.HashData(input));
+        if (input.Length > 4 * 1024 * 1024) return null;
+        string hash = Convert.ToHexString(SHA256.HashData(input));
+        ModFileReads.Add(input.Position);
+        return hash;
     }
 
     public static StartupPackWriteResult Save(string path, string gameDirectory, string cacheDirectory,

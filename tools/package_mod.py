@@ -36,7 +36,8 @@ def package(destination: Path) -> None:
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
-        for path in (MOD_XML, DLL, *TRANSLATIONS, Path("README.md"), Path("tools/Start-RimWorldGc.ps1")):
+        for path in (MOD_XML, DLL, *TRANSLATIONS, Path("README.md"), Path("tools/Start-RimWorldGc.ps1"),
+                     Path("tools/Start-RimWorld-ServerGc.cmd")):
             archive.write(ROOT / path, f"{INSTALL_DIR}/{path.as_posix()}")
     print(destination.resolve())
 
