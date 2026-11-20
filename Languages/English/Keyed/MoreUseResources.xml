@@ -64,8 +64,8 @@
   <MUR_StartupCounters>From process start to loaded: {0}</MUR_StartupCounters>
   <MUR_RecordLoadTiming>Record how long the load stages take (written to the log; applies on next start)</MUR_RecordLoadTiming>
   <MUR_GcStatus>GC in the last 10 s: gen0 {0} · gen1 {1} · gen2 {2} · stopped {3} ms ({4}%) · allocating {5} MiB/s · managed heap {6} MiB · mode {7}</MUR_GcStatus>
-  <MUR_CopyStatus>Copy status (for pasting a measurement; also written to the log)</MUR_CopyStatus>
-  <MUR_StatusCopied>More Use Resources: status copied to the clipboard and written to Player.log.</MUR_StatusCopied>
+  <MUR_CopyStatus>Copy status (for pasting a measurement; also saved to a file)</MUR_CopyStatus>
+  <MUR_StatusCopied>More Use Resources: status copied to the clipboard and added to MoreUseResources-Status.txt next to the Logs folder.</MUR_StatusCopied>
   <MUR_PlayStats>Unpaused play this session (average per game speed and tick-rate multiplier; time in other windows left out): {0}</MUR_PlayStats>
   <MUR_GcPending>GC: measuring the first 10 seconds</MUR_GcPending>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
@@ -81,7 +81,7 @@
   <MUR_GpuRefreshInterval>Texture refresh interval {0} seconds (0 disables rescan)</MUR_GpuRefreshInterval>
   <MUR_GpuMaxTextureDimension>Largest prewarmed texture edge {0} px (larger means more GPU work)</MUR_GpuMaxTextureDimension>
   <MUR_GpuHint>Texture prewarming requires a discrete GPU and a reported Vulkan heap budget during steady frames. Waylith manages uploaded textures.</MUR_GpuHint>
-  <MUR_GpuUnsupported>Texture prewarming is available on Windows 1.7.5011 rev24.</MUR_GpuUnsupported>
+  <MUR_GpuUnsupported>Texture prewarming is available on Windows 1.7.5011 rev24 and 1.7.5014 rev1195.</MUR_GpuUnsupported>
   <MUR_GpuDisabled>Off</MUR_GpuDisabled>
   <MUR_GpuWaiting>Waiting for a steady frame</MUR_GpuWaiting>
   <MUR_GpuNoBudget>Compatible driver budget unavailable</MUR_GpuNoBudget>

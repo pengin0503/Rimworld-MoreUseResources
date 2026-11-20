@@ -13,7 +13,7 @@ namespace MoreUseResources.Core;
 /// <param name="Id">The OS thread id.</param>
 /// <param name="Started">When the thread started, in the platform's units. With <paramref name="Id"/> it names one thread even after the id is reused.</param>
 /// <param name="CpuMs">CPU time used since the thread started.</param>
-/// <param name="Group">"main" for the thread that read the snapshot, otherwise the thread's name without its trailing number.</param>
+/// <param name="Group">"main" for the thread named as main when reading, otherwise the thread's name without its trailing number.</param>
 public readonly record struct ThreadTime(long Id, long Started, double CpuMs, string Group);
 
 /// <summary>Every thread of this process, and the hard page faults of the process, at one moment.</summary>
@@ -29,7 +29,8 @@ public readonly record struct GroupCpu(double CpuMs, int Threads);
 /// and which have room. Reading changes nothing in the game.
 /// Windows: one NtQuerySystemInformation call for times and hard faults, and the thread description for
 /// names (asked once per thread). Linux: /proc/self/task. Other platforms read nothing.
-/// Call from one thread; that thread is reported as "main".
+/// Any thread may read; reads take turns. The Windows call lists every process of the machine and takes a few
+/// milliseconds on a desktop, so a caller that runs every frame reads on a background thread and names the main thread.
 /// </summary>
 public sealed class ThreadSampler : IDisposable
 {
@@ -37,6 +38,7 @@ public sealed class ThreadSampler : IDisposable
     public const string UnnamedGroup = "(unnamed)";
     private const int MaxGroupNameChars = 40;
 
+    private readonly object _gate = new();
     private Dictionary<(long Id, long Started), string> _names = new();
     private IntPtr _buffer;
     private int _bufferBytes;
@@ -46,20 +48,40 @@ public sealed class ThreadSampler : IDisposable
 
     public ThreadSampler() => _windowsName = WindowsName;
 
-    /// <summary>A snapshot, or null when the platform gives none or the read failed.</summary>
-    public ThreadSnapshot? Read()
+    /// <summary>A snapshot that reports the calling thread as "main", or null when the platform gives none or the read failed.</summary>
+    public ThreadSnapshot? Read() => Read(CurrentThreadId());
+
+    /// <summary>A snapshot that reports the thread with OS id <paramref name="mainThreadId"/> as "main" (see <see cref="CurrentThreadId"/>).</summary>
+    public ThreadSnapshot? Read(long mainThreadId)
     {
-        if (_disposed) return null;
+        lock (_gate)
+        {
+            if (_disposed) return null;
+            try
+            {
+                if (OperatingSystem.IsWindows()) return ReadWindows(mainThreadId);
+                if (OperatingSystem.IsLinux()) return ReadLinux(mainThreadId);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or IOException
+                or UnauthorizedAccessException or FormatException or OverflowException or OutOfMemoryException)
+            {
+            }
+            return null;
+        }
+    }
+
+    /// <summary>The OS id of the calling thread, as the snapshots name threads, or -1 where it is unknown.</summary>
+    public static long CurrentThreadId()
+    {
         try
         {
-            if (OperatingSystem.IsWindows()) return ReadWindows();
-            if (OperatingSystem.IsLinux()) return ReadLinux();
+            if (OperatingSystem.IsWindows()) return GetCurrentThreadId();
+            if (OperatingSystem.IsLinux()) return LinuxCurrentThreadId();
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or IOException
-            or UnauthorizedAccessException or FormatException or OverflowException or OutOfMemoryException)
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or IOException or UnauthorizedAccessException)
         {
         }
-        return null;
+        return -1;
     }
 
     /// <summary>"WaylithJob 3" and "WaylithJob 12" are one group "WaylithJob"; a thread without a name is "(unnamed)".</summary>
@@ -125,7 +147,7 @@ public sealed class ThreadSampler : IDisposable
         return text.Length == 0 ? "n/a" : text.ToString();
     }
 
-    private unsafe ThreadSnapshot? ReadWindows()
+    private unsafe ThreadSnapshot? ReadWindows(long mainThreadId)
     {
         // The layouts below are those of 64-bit Windows, the only Windows build of the game.
         if (IntPtr.Size != 8) return null;
@@ -133,7 +155,7 @@ public sealed class ThreadSampler : IDisposable
         if (length <= 0) return null;
         var names = new Dictionary<(long, long), string>();
         ThreadSnapshot? snapshot = ParseWindowsProcesses(new ReadOnlySpan<byte>((void*)_buffer, length), Environment.ProcessId,
-            GetCurrentThreadId(), (id, started) => GroupOf(Name(names, id, started, _windowsName)));
+            mainThreadId, (id, started) => GroupOf(Name(names, id, started, _windowsName)));
         if (snapshot != null) _names = names;
         return snapshot;
     }
@@ -226,9 +248,8 @@ public sealed class ThreadSampler : IDisposable
         }
     }
 
-    private ThreadSnapshot ReadLinux()
+    private ThreadSnapshot ReadLinux(long main)
     {
-        long main = LinuxCurrentThreadId();
         var threads = new List<ThreadTime>();
         var names = new Dictionary<(long, long), string>();
         foreach (string directory in Directory.EnumerateDirectories("/proc/self/task"))
@@ -258,7 +279,7 @@ public sealed class ThreadSampler : IDisposable
         // "/proc/thread-self" links to "<pid>/task/<tid>" for the calling thread.
         string? target = new FileInfo("/proc/thread-self").LinkTarget;
         return target != null && long.TryParse(Path.GetFileName(target), NumberStyles.None, CultureInfo.InvariantCulture, out long id)
-            ? id : Environment.ProcessId;
+            ? id : -1;
     }
 
     /// <summary>Reads user plus system time, the start time and the major faults from a /proc stat line.</summary>
@@ -283,9 +304,12 @@ public sealed class ThreadSampler : IDisposable
 
     public void Dispose()
     {
-        _disposed = true;
-        if (_buffer != IntPtr.Zero) Marshal.FreeHGlobal(_buffer);
-        _buffer = IntPtr.Zero;
+        lock (_gate)
+        {
+            _disposed = true;
+            if (_buffer != IntPtr.Zero) Marshal.FreeHGlobal(_buffer);
+            _buffer = IntPtr.Zero;
+        }
     }
 
     // SYSTEM_PROCESS_INFORMATION and SYSTEM_THREAD_INFORMATION on 64-bit Windows, as System.Diagnostics.Process reads them:

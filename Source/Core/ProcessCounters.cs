@@ -67,6 +67,45 @@ public readonly record struct ProcessCounters(double WallMs, double CpuMs, doubl
         return text;
     }
 
+    /// <summary>
+    /// Committed private memory of this process (Task Manager's "commit size"). Windows reads it with GetProcessMemoryInfo,
+    /// because <see cref="Process.PrivateMemorySize64"/> there lists every process of the machine to find this one,
+    /// which takes milliseconds on a desktop.
+    /// </summary>
+    public static long PrivateBytes()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var counters = new MemoryCountersEx { Size = (uint)Marshal.SizeOf<MemoryCountersEx>() };
+                if (K32GetProcessMemoryInfo(GetCurrentProcess(), ref counters, counters.Size)) return (long)counters.PrivateUsage;
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+            }
+        }
+        using Process process = Process.GetCurrentProcess();
+        return process.PrivateMemorySize64;
+    }
+
+    /// <summary>PROCESS_MEMORY_COUNTERS_EX.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryCountersEx
+    {
+        public uint Size;
+        public uint PageFaultCount;
+        public nuint PeakWorkingSetSize;
+        public nuint WorkingSetSize;
+        public nuint QuotaPeakPagedPoolUsage;
+        public nuint QuotaPagedPoolUsage;
+        public nuint QuotaPeakNonPagedPoolUsage;
+        public nuint QuotaNonPagedPoolUsage;
+        public nuint PagefileUsage;
+        public nuint PeakPagefileUsage;
+        public nuint PrivateUsage;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct IoCounters
     {
@@ -89,4 +128,10 @@ public readonly record struct ProcessCounters(double WallMs, double CpuMs, doubl
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetProcessIoCounters(IntPtr process, out IoCounters counters);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool K32GetProcessMemoryInfo(IntPtr process, ref MemoryCountersEx counters, uint size);
 }

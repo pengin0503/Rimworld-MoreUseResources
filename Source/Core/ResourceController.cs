@@ -593,8 +593,7 @@ namespace MoreUseResources.Core
                 _lastPrivateStamp = now;
                 try
                 {
-                    using Process p = Process.GetCurrentProcess();
-                    _privateBytes = p.PrivateMemorySize64;
+                    _privateBytes = ProcessCounters.PrivateBytes();
                 }
                 catch (Exception)
                 {

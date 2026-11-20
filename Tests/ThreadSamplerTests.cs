@@ -157,6 +157,52 @@ namespace MoreUseResources.Tests
             }
         }
 
+        [Fact]
+        public void A_read_on_another_thread_reports_the_named_thread_as_main()
+        {
+            using var sampler = new ThreadSampler();
+            long caller = ThreadSampler.CurrentThreadId();
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            {
+                Assert.Equal(-1, caller);
+                return;
+            }
+            Assert.True(caller > 0);
+            ThreadSnapshot? snapshot = System.Threading.Tasks.Task.Run(() => sampler.Read(caller)).GetAwaiter().GetResult();
+            Assert.NotNull(snapshot);
+            ThreadTime main = Assert.Single(snapshot!.Threads, t => t.Group == ThreadSampler.MainGroup);
+            Assert.Equal(caller, main.Id);
+        }
+
+        [Fact]
+        public void Reads_from_several_threads_take_turns()
+        {
+            using var sampler = new ThreadSampler();
+            long caller = ThreadSampler.CurrentThreadId();
+            var reads = new System.Threading.Tasks.Task<ThreadSnapshot?>[8];
+            for (int i = 0; i < reads.Length; i++) reads[i] = System.Threading.Tasks.Task.Run(() => sampler.Read(caller));
+            System.Threading.Tasks.Task.WaitAll(reads);
+            foreach (var read in reads)
+            {
+                if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) Assert.NotNull(read.Result);
+                else Assert.Null(read.Result);
+            }
+        }
+
+        [Fact]
+        public void Private_bytes_are_read_without_the_process_list() =>
+            Assert.True(ProcessCounters.PrivateBytes() > 0);
+
+        [Theory]
+        [InlineData(1, 7, 5011, 24, true)]
+        [InlineData(1, 7, 5014, 1195, true)]
+        [InlineData(1, 7, 5013, 1195, false)]
+        [InlineData(1, 7, 5014, 1196, false)]
+        [InlineData(1, 6, 5011, 24, false)]
+        [InlineData(2, 7, 5014, 1195, false)]
+        public void Only_checked_builds_run_the_engine_facing_code(int major, int minor, int build, int revision, bool verified) =>
+            Assert.Equal(verified, VerifiedBuilds.Contains(major, minor, build, revision));
+
         [Theory]
         [InlineData(0, 100, 64, 0)]
         [InlineData(33, 100_000, 65_536, 65_536)]

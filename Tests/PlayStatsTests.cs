@@ -32,12 +32,12 @@ namespace MoreUseResources.Tests
             stats.Add(3, 6, Window(10, 20, 50, 1000), new PlayWindow(1800, 600, 3, 1, 140, Counters(32_000), 2L << 20)
             {
                 AvailableBytes = 8L << 30, OffloadedTextures = 5, PackDecodeMs = 12, Threads = Threads(6000, 3000, 5000),
-                HardFaults = 30, TickMs = 4000, MapMs = 1500, UiMs = 500, SamplingMs = 1.5,
+                HardFaults = 30, TickMs = 4000, MapMs = 1500, UiMs = 500, SamplingMs = 0.1, ThreadReadMs = 6,
             });
             stats.Add(3, 6, Window(14, 60, 70, 1200), new PlayWindow(1700, 580, 1, 0, 80, Counters(48_000, mainMs: 7000), 0)
             {
                 AvailableBytes = 6L << 30, OffloadedTextures = 9, PackDecodeMs = 8, Threads = Threads(6000, 3000, 5000),
-                HardFaults = 10, TickMs = 5000, MapMs = 1500, UiMs = 500, SamplingMs = 2.5,
+                HardFaults = 10, TickMs = 5000, MapMs = 1500, UiMs = 500, SamplingMs = 0.3, ThreadReadMs = 8,
             });
             stats.Add(1, 1, Window(2, 5, 10, 900), new PlayWindow(600, 600, 0, 0, 20, Counters(16_000, mainMs: null, busyMs: null, readBytes: null), 0));
 
@@ -54,7 +54,8 @@ namespace MoreUseResources.Tests
                 + "I/O read 1.00 MiB/s (this mod 0.10), hard page faults 2.0/s, frames over 50 ms 4, over 100 ms 1, longest 140 ms, "
                 + "free RAM min 6144 MiB, textures offloaded to RAM max 9, pack unpacking 20 ms CPU\n"
                 + "  main thread in ticks 45%, map update 15%, UI 5% of wall time; "
-                + "CPU cores by thread: main 0.60, WaylithJob (15) 0.50, RenderThread 0.30; measuring took 2.0 ms per window (max 2.5)",
+                + "CPU cores by thread: main 0.60, WaylithJob (15) 0.50, RenderThread 0.30; "
+                + "measuring took 0.2 ms per window on the main thread (max 0.3), reading threads 7.0 ms on a background thread (max 8.0)",
                 stats.Report());
         }
 

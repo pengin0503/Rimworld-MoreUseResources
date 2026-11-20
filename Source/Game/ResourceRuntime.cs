@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using HarmonyLib;
 using MoreUseResources.Core;
 using RimWorld.Planet;
@@ -51,13 +52,21 @@ internal sealed class ResourceRuntime
     /// <summary>A frame-to-frame gap this much longer than the frame interval means the engine skipped whole updates.</summary>
     private const int SkippedUpdatesGapMs = 1000;
     private readonly ThreadSampler threadSampler = new();
+    /// <summary>The OS id of the thread that runs <see cref="Root.Update"/>; -1 until the first frame.</summary>
+    private long mainThreadId = -1;
+    private PendingWindow? pendingWindow;
     /// <summary>GC, TPS, FPS, CPU, JIT and file reads averaged over the unpaused play of this session.</summary>
     internal PlayStats Play { get; } = new(Environment.ProcessorCount);
-    /// <summary>Thread CPU and hard page faults since the process started, read on the main thread.</summary>
-    internal ThreadSnapshot? ReadThreads() => threadSampler.Read();
+    /// <summary>Thread CPU and hard page faults since the process started. Takes a few milliseconds on Windows; for one-off use.</summary>
+    internal ThreadSnapshot? ReadThreads() => mainThreadId >= 0 ? threadSampler.Read(mainThreadId) : threadSampler.Read();
 
     private readonly record struct WindowStart(long Ticks, long Frames, ProcessCounters Counters, long ModReadBytes, long PackDecodeTicks,
-        ThreadSnapshot? Threads, (long Tick, long Map, long Ui)? Main);
+        Task<ThreadRead>? Threads, (long Tick, long Map, long Ui)? Main);
+    /// <summary>A thread snapshot and how long the background thread took to read it.</summary>
+    private readonly record struct ThreadRead(ThreadSnapshot? Snapshot, double Ms);
+    /// <summary>A finished play window that waits for the thread read at its end, which runs on a background thread.</summary>
+    private sealed record PendingWindow(int Speed, float Rate, GcSnapshot Gc, WindowStart Begin, WindowStart End,
+        (int Over50, int Over100, double Longest) Frames, long AvailableBytes, int Offloaded, double SamplingMs);
     internal GcBenchmark? GcCurrent { get; private set; }
     internal GcBenchmark? GcBaseline { get; private set; }
     internal EngineExperiments Experiments => experiments;
@@ -226,6 +235,8 @@ internal sealed class ResourceRuntime
 
     private void UpdateGc(long now, GamePhase phase, TickManager? ticks, bool focused)
     {
+        if (mainThreadId < 0) mainThreadId = ThreadSampler.CurrentThreadId();
+        if (pendingWindow != null) AddPendingWindow(waitedLongEnough: false);
         GCLatencyMode latency = GCSettings.LatencyMode;
         // A focus change also starts over: with "run in background" on, the game keeps playing behind other windows,
         // and that time competes with whatever the player switched to.
@@ -240,6 +251,8 @@ internal sealed class ResourceRuntime
             GcCurrent = null;
         }
         if (!gcMonitor.Sample(now, latency)) return;
+        // A read that has not finished in a whole window is not waited for any longer.
+        if (pendingWindow != null) AddPendingWindow(waitedLongEnough: true);
         long sampling = Stopwatch.GetTimestamp();
         ControllerStatus status = controller.GetStatus();
         (int offloaded, long packDecodeTicks) = (-1, -1L);
@@ -249,7 +262,7 @@ internal sealed class ResourceRuntime
             catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
         }
         var end = new WindowStart(ticks?.TicksGame ?? 0, Time.frameCount, ProcessCounters.ReadCurrent(), ModFileReads.Bytes, packDecodeTicks,
-            threadSampler.Read(), MainThreadTimers.Installed ? MainThreadTimers.Read() : null);
+            ReadThreadsInBackground(), MainThreadTimers.Installed ? MainThreadTimers.Read() : null);
         double samplingMs = Stopwatch.GetElapsedTime(sampling).TotalMilliseconds;
         WindowStart? start = gcWindowStart;
         gcWindowStart = end;
@@ -262,24 +275,58 @@ internal sealed class ResourceRuntime
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
             if (focused && phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && context.Item3 is float rate
                 && start is { } begin)
-                Play.Add(speed, rate, gcMonitor.Latest, PlayWindowBetween(begin, end, frames, status, offloaded, samplingMs));
+            {
+                // Added once the thread read at its end finishes, usually a few frames later.
+                pendingWindow = new PendingWindow(speed, rate, gcMonitor.Latest, begin, end, frames,
+                    status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1, offloaded, samplingMs);
+                AddPendingWindow(waitedLongEnough: false);
+            }
         }
     }
 
-    private static PlayWindow PlayWindowBetween(WindowStart begin, WindowStart end, (int Over50, int Over100, double Longest) frames,
-        ControllerStatus status, int offloaded, double samplingMs)
+    /// <summary>
+    /// Reads every thread's CPU time on a thread-pool thread. On Windows the read lists every process of the machine,
+    /// which takes several milliseconds on a desktop; on the main thread that would lengthen one frame per window.
+    /// </summary>
+    private Task<ThreadRead> ReadThreadsInBackground()
+    {
+        long main = mainThreadId;
+        return Task.Run(() =>
+        {
+            long started = Stopwatch.GetTimestamp();
+            ThreadSnapshot? snapshot = threadSampler.Read(main);
+            return new ThreadRead(snapshot, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        });
+    }
+
+    /// <summary>Adds the pending window once both thread reads have finished, or without thread values once waited long enough.</summary>
+    private void AddPendingWindow(bool waitedLongEnough)
+    {
+        if (pendingWindow is not { } w) return;
+        bool ready = (w.Begin.Threads?.IsCompleted ?? true) && (w.End.Threads?.IsCompleted ?? true);
+        if (!ready && !waitedLongEnough) return;
+        pendingWindow = null;
+        Play.Add(w.Speed, w.Rate, w.Gc, PlayWindowBetween(w));
+    }
+
+    private static PlayWindow PlayWindowBetween(PendingWindow w)
     {
         static double Ms(long stopwatchTicks) => stopwatchTicks * 1000.0 / Stopwatch.Frequency;
-        var window = new PlayWindow(end.Ticks - begin.Ticks, end.Frames - begin.Frames, frames.Over50, frames.Over100, frames.Longest,
+        static ThreadRead? Finished(Task<ThreadRead>? read) => read is { IsCompletedSuccessfully: true } ? read.Result : null;
+        WindowStart begin = w.Begin, end = w.End;
+        ThreadSnapshot? before = Finished(begin.Threads)?.Snapshot;
+        ThreadRead? after = Finished(end.Threads);
+        var window = new PlayWindow(end.Ticks - begin.Ticks, end.Frames - begin.Frames, w.Frames.Over50, w.Frames.Over100, w.Frames.Longest,
             end.Counters.Since(begin.Counters), end.ModReadBytes - begin.ModReadBytes)
         {
-            AvailableBytes = status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1,
-            OffloadedTextures = offloaded,
+            AvailableBytes = w.AvailableBytes,
+            OffloadedTextures = w.Offloaded,
             PackDecodeMs = end.PackDecodeTicks >= 0 && begin.PackDecodeTicks >= 0 ? Ms(end.PackDecodeTicks - begin.PackDecodeTicks) : -1,
-            Threads = begin.Threads != null && end.Threads != null ? ThreadSampler.Delta(begin.Threads, end.Threads) : null,
-            HardFaults = begin.Threads?.HardFaults is { } faultsBefore && end.Threads?.HardFaults is { } faultsAfter
+            Threads = before != null && after?.Snapshot is { } last ? ThreadSampler.Delta(before, last) : null,
+            HardFaults = before?.HardFaults is { } faultsBefore && after?.Snapshot?.HardFaults is { } faultsAfter
                 ? Math.Max(0, faultsAfter - faultsBefore) : -1,
-            SamplingMs = samplingMs,
+            SamplingMs = w.SamplingMs,
+            ThreadReadMs = after?.Ms ?? -1,
         };
         if (begin.Main is { } a && end.Main is { } b)
             window = window with { TickMs = Ms(b.Tick - a.Tick), MapMs = Ms(b.Map - a.Map), UiMs = Ms(b.Ui - a.Ui) };
@@ -675,7 +722,7 @@ internal sealed class ResourceRuntime
                 QueueDemandHistoryLoad(snapshot);
             }
             if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch && !LoadTiming.Recorder.Completed)
-                LoadTiming.CompleteOnce(ModFileReads.Bytes, threadSampler.Read());
+                LoadTiming.CompleteOnce(ModFileReads.Bytes, ReadThreads());
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
             // While the window is unfocused and the game does not run in the background, the engine skips whole

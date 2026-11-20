@@ -40,6 +40,9 @@ public readonly record struct PlayWindow(long Ticks, long Frames, int FramesOver
 
     /// <summary>Main-thread time taken to read this window's counters, so the cost of measuring is visible.</summary>
     public double SamplingMs { get; init; } = -1;
+
+    /// <summary>Time a background thread took to read <see cref="Threads"/> at the end of the window.</summary>
+    public double ThreadReadMs { get; init; } = -1;
 }
 
 /// <summary>
@@ -125,6 +128,12 @@ public sealed class PlayStats
             t.SampledWindows++;
             t.MaxSamplingMs = Math.Max(t.MaxSamplingMs, window.SamplingMs);
         }
+        if (window.ThreadReadMs >= 0)
+        {
+            t.ThreadReadMs += window.ThreadReadMs;
+            t.ThreadReadWindows++;
+            t.MaxThreadReadMs = Math.Max(t.MaxThreadReadMs, window.ThreadReadMs);
+        }
     }
 
     private static void Accumulate(ref double sum, ref double basis, double? value, double? over)
@@ -175,8 +184,10 @@ public sealed class PlayStats
                 : "main thread split n/a");
             text.Append("; CPU cores by thread: ").Append(ThreadSampler.Format(t.ThreadGroups, t.ThreadWallMs));
             text.Append(t.SampledWindows > 0
-                ? string.Create(c, $"; measuring took {t.SamplingMs / t.SampledWindows:F1} ms per window (max {t.MaxSamplingMs:F1})")
+                ? string.Create(c, $"; measuring took {t.SamplingMs / t.SampledWindows:F1} ms per window on the main thread (max {t.MaxSamplingMs:F1})")
                 : "; measuring cost n/a");
+            if (t.ThreadReadWindows > 0)
+                text.Append(c, $", reading threads {t.ThreadReadMs / t.ThreadReadWindows:F1} ms on a background thread (max {t.MaxThreadReadMs:F1})");
         }
         return text.ToString();
     }
@@ -223,5 +234,8 @@ public sealed class PlayStats
         public double SamplingMs;
         public int SampledWindows;
         public double MaxSamplingMs;
+        public double ThreadReadMs;
+        public int ThreadReadWindows;
+        public double MaxThreadReadMs;
     }
 }

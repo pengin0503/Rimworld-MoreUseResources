@@ -59,9 +59,8 @@ internal sealed class TexturePrewarm
     internal void OfferHistory(IReadOnlyList<TextureDemandSample> samples) =>
         System.Threading.Volatile.Write(ref offeredHistory, samples);
 
-    internal static bool SupportedBuild => OperatingSystem.IsWindows()
-        && VersionControl.CurrentMajor == 1 && VersionControl.CurrentMinor == 7
-        && VersionControl.CurrentBuild == 5011 && VersionControl.CurrentRevision == 24;
+    internal static bool SupportedBuild => OperatingSystem.IsWindows() && VerifiedBuilds.Contains(
+        VersionControl.CurrentMajor, VersionControl.CurrentMinor, VersionControl.CurrentBuild, VersionControl.CurrentRevision);
 
     internal void Update(GamePhase phase, ResourceActivation activation, ResourceSettings settings, bool throttled, bool ready)
     {

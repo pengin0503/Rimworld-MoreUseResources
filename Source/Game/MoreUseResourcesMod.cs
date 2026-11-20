@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using MoreUseResources.Core;
@@ -225,9 +226,12 @@ public sealed class MoreUseResourcesMod : Mod
         capture?.AppendLine(text.Resolve().StripTags());
     }
 
+    internal const string StatusFileName = "MoreUseResources-Status.txt";
+    private const long StatusFileMaxBytes = 1024 * 1024;
+
     /// <summary>
-    /// Puts the status, the build and every setting on the clipboard as plain text and writes the same text to the log,
-    /// so a measurement can be pasted as it is.
+    /// Puts the status, the build and every setting on the clipboard as plain text, adds the same text to
+    /// <see cref="StatusFileName"/> and writes it to the log, so a measurement can be pasted as it is.
     /// </summary>
     private void CopyStatus(StringBuilder lines)
     {
@@ -277,6 +281,7 @@ public sealed class MoreUseResourcesMod : Mod
         text.Append("Settings: ").Append(settings.Value.Describe()).AppendLine();
         string result = text.ToString();
         Log.Message("[More Use Resources] Status snapshot:\n" + result);
+        SaveStatusFile(result);
         try
         {
             GUIUtility.systemCopyBuffer = result;
@@ -284,7 +289,27 @@ public sealed class MoreUseResourcesMod : Mod
         }
         catch (Exception ex)
         {
-            Log.Warning("[More Use Resources] Could not copy the status to the clipboard. It is in the log. " + ex.Message);
+            Log.Warning("[More Use Resources] Could not copy the status to the clipboard. It is in " + StatusFileName + ". " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Adds one copied status to a file in the folder that holds Saves and Logs. Player.log is not enough: in a
+    /// measured session with 218 mods it kept no message from any mod after loading had finished, warnings only.
+    /// Each copy is added after the earlier ones, so a first and a second measurement end up in one file.
+    /// </summary>
+    private static void SaveStatusFile(string status)
+    {
+        try
+        {
+            string path = Path.Combine(GenFilePaths.SaveDataFolderPath, StatusFileName);
+            var file = new FileInfo(path);
+            if (file.Exists && file.Length > StatusFileMaxBytes) file.Delete();
+            File.AppendAllText(path, status + Environment.NewLine, new UTF8Encoding(false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            Log.Warning("[More Use Resources] Could not save the status to " + StatusFileName + ". " + ex.Message);
         }
     }
 
