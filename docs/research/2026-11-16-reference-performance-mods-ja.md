@@ -53,3 +53,18 @@ CPUワーカーで実行する。RAM先読みを無効にしてもCPU索引の�
    このMODよりもゲーム側のスレッド安全性・MOD互換性の検証が優先される。
 4. WOWGAGとOverclockとAxenのコード・DLLは取り込まない。
    公開ソースの複製・派生が必要な場合は別途ライセンスを満たす。
+
+## 追記（2026-11-17）: Overclockの作者が記録しているワーカー数と速度の関係
+
+配布版のOverclock（Workshop 3828406061、1.7用、`Languages/English/Keyed/Overclock.xml` の `Overclock_ParallelThreadsDesc`）は、ワーカースレッド数の設定に次の説明を付けています。
+
+> How many extra threads tick pawns. Takes effect after a restart. More is not always faster: on a 16-core CPU, 7, 11 and 15 ran a 350-colonist colony at the same speed, and 23 was slower.
+
+要点:
+
+- 16コアのCPU、入植者350人のコロニーで、ワーカー数7・11・15は同じ速度、23は遅くなった、という作者自身の記録です。本プロジェクトでは再現・計測していません。
+- Overclockの自動設定（`parallelThreads` が0）は、論理CPU数が8以上ならその半分、未満ならそのままの数から1を引いた値です（16スレッドのCPUでは7）。設定UIの上限は論理CPU数−1です。
+- ワーカー数を上げればCPU使用率は上がり得ますが、この記録のとおり、ゲーム速度が上がるとは限りません。起動スクリプトの `-ExternalWorkerOwner Overclock` で数を上げる場合は、この点を前提にします。
+- Overclockの並列Pawn Tickは、WOWGAGの並列設定（`parPawnTick`、`parPawnComps`、`parWork`、`parPredictConst`、`parPredictFail`、`parPredictJob`、`parMapPost`）のいずれかがONだと適用されません。その構成では `parallelThreads` を変えても効果がありません。
+- 同じ配布版は、WOWGAG併用時の注記として「WOWGAGは本体の多くをパッチしているため、このモードは単一スレッドより遅くなり、エラーを記録することがある。併用は推奨しない」という趣旨の文も持っています（`ParallelPawnTicks` 内の既定文）。
+

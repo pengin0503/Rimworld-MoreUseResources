@@ -58,6 +58,11 @@ namespace MoreUseResources.Core
         /// <summary>Average frame time (ms) above which main-thread work and synthetic load back off. 0 disables the guard.</summary>
         public int FrameGuardMs = 66;
         public bool ShowOverlay = false;
+        /// <summary>Time the game's load stages after this mod starts. Read at launch; a change applies on the next start.</summary>
+        public bool RecordLoadTiming = true;
+        public bool CachePatchedXml = false;
+        public bool UncompressedTextureCache = false;
+        public bool ExportStartupPacks = false;
 
         // ---- per phase ----
         public bool[] CpuPhases = new bool[PhaseCount];
@@ -72,6 +77,8 @@ namespace MoreUseResources.Core
         public int CpuMaxWorkers = 0;
         public WorkerPriority CpuWorkerPriority = WorkerPriority.Lowest;
         public bool CpuSyntheticLoad = false;
+        public bool CpuJitPrewarm = false;
+        public bool AdaptiveWorkers = false;
         /// <summary>Fingerprint enabled mods' real files and report exact duplicate content.</summary>
         public bool CpuIndexAssets = true;
         /// <summary>Minutes between full read-only content integrity passes; 0 disables rescans.</summary>
@@ -90,6 +97,9 @@ namespace MoreUseResources.Core
         public bool RamHoldCopies = true;
         public int RamFileCacheMiB = 4096;
         public int RamMinFreeMiB = 6144;
+        /// <summary>Map the game's read-only Assets.zip packs and keep their pages in this process.</summary>
+        public bool RamResidentPacks = false;
+        public int RamResidentPackMiB = 2048;
         public bool RamReserve = false;
         public int RamReserveMiB = 4096;
         public bool RamGcLowLatency = false;
@@ -97,6 +107,12 @@ namespace MoreUseResources.Core
         // ---- GPU ----
         public bool GpuEnabled = true;
         public bool GpuPrewarm = true;
+        public bool GpuResidencyBoost = false;
+        public bool GpuDemandPriority = false;
+        public bool GpuPrepareGraphics = false;
+        public bool GpuAnisotropicMeshes = false;
+        /// <summary>While paused, rebuild changed off-screen sections of the current map with the game's own method.</summary>
+        public bool GpuPrepareSections = false;
         /// <summary>Upper bound for device-local usage as percent of the driver budget. Capped at 75 to stay under the engine's own eviction watermark (about 80%).</summary>
         public int GpuTargetPercent = 60;
         public int GpuKeepFreeMiB = 2048;
@@ -114,6 +130,25 @@ namespace MoreUseResources.Core
         public ResourceSettings()
         {
             ResetPhaseDefaults();
+        }
+
+        public void ApplyAssetBoost()
+        {
+            ResetPhaseDefaults();
+            ApplyPresetIntensity(IntensityPreset.Aggressive);
+            Enabled = CpuEnabled = RamEnabled = GpuEnabled = true;
+            CpuMaxWorkers = 0;
+            CpuIndexAssets = AdaptiveWorkers = true;
+            RamFileCache = RamResidentPacks = ExportStartupPacks = true;
+            CpuSyntheticLoad = RamReserve = RamHoldCopies = false;
+            RamResidentPackMiB = Math.Max(RamResidentPackMiB, 4096);
+            RamMinFreeMiB = Math.Max(RamMinFreeMiB, 6144);
+            GpuResidencyBoost = GpuDemandPriority = true;
+            GpuTargetPercent = Math.Max(GpuTargetPercent, 65);
+            GpuKeepFreeMiB = Math.Max(GpuKeepFreeMiB, 2048);
+            GpuFrameBudgetTenthMs = Math.Max(GpuFrameBudgetTenthMs, 20);
+            GpuMaxTextureDimension = Math.Max(GpuMaxTextureDimension, 2048);
+            Clamp();
         }
 
         public void ResetPhaseDefaults()
@@ -199,6 +234,7 @@ namespace MoreUseResources.Core
             RamPrefetchRefreshMinutes = Math.Clamp(RamPrefetchRefreshMinutes, 0, 120);
             RamMinFreeMiB = Math.Clamp(RamMinFreeMiB, 1024, 262144);
             RamReserveMiB = Math.Clamp(RamReserveMiB, 64, 262144);
+            RamResidentPackMiB = Math.Clamp(RamResidentPackMiB, 64, 65536);
             GpuTargetPercent = Math.Clamp(GpuTargetPercent, 10, MaxGpuTargetPercent);
             GpuKeepFreeMiB = Math.Clamp(GpuKeepFreeMiB, 512, 65536);
             GpuFrameBudgetTenthMs = Math.Clamp(GpuFrameBudgetTenthMs, 2, 80);

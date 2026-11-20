@@ -18,6 +18,7 @@ namespace MoreUseResources.Tests
             Assert.Equal(60, result.TicksPerSecond, 3);
             Assert.Equal(18, result.AverageFrameIntervalMs, 3);
             Assert.Equal(20, result.WorstFrameIntervalMs, 3);
+            Assert.Equal(20, result.P95FrameIntervalMs);
         }
 
         [Fact]

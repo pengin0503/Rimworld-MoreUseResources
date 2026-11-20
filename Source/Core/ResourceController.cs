@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
+using System.Reflection;
 
 namespace MoreUseResources.Core
 {
@@ -13,6 +15,10 @@ namespace MoreUseResources.Core
         public double FrameAverageMs;
 
         public int WorkerThreads;
+        /// <summary>The user's or automatic worker limit before phase intensity. Other mods never lower it.</summary>
+        public int WorkerCap;
+        public ExternalParallelism External = ExternalParallelism.None;
+        public WorkUnitYields Yields = WorkUnitYields.None;
         public int WorkersActive;
         public bool SyntheticLoad;
         public int PendingJobs;
@@ -37,8 +43,21 @@ namespace MoreUseResources.Core
         public long FileBytesRead;
         public long FileErrors;
         public int FilesDeferredForBudget;
+        /// <summary>Files warmed in the OS cache although their private copy had no budget.</summary>
+        public long FilesWarmedWithoutCopy;
+        /// <summary>Compiled shader records of the engine included in the prefetch list.</summary>
+        public int ShaderCacheFiles;
         public bool FilePassComplete;
         public int FileDiscoveryPasses;
+        /// <summary>Engine texture-cache and asset packs included in the prefetch list.</summary>
+        public int EnginePackFiles;
+        public int ResidentPackSources;
+        public int ResidentPackFiles;
+        public long ResidentPackBytes;
+        public int ResidentPackPasses;
+        public int ResidentPacksDeferred;
+        public long ResidentPackErrors;
+        public string? ResidentPackLastError;
         public int FileSourceChanges;
         public int FileRefreshPasses;
         public int AuditSources;
@@ -85,14 +104,22 @@ namespace MoreUseResources.Core
         private readonly IMemoryProbe _probe;
         private readonly int _logicalProcessors;
         private readonly Func<bool>? _savingProbe;
-        private readonly IReadOnlyList<string>? _assetFolders;
+        private IReadOnlyList<string>? _assetFolders;
         private readonly Func<long> _assetClockMs;
+        private readonly Func<CancellationToken, IReadOnlyList<string>>? _packDiscovery;
+        private int _enginePackFiles;
+        private int _shaderCacheFiles;
+        private ExternalParallelism _external = ExternalParallelism.None;
+        private WorkUnitYields _yields = WorkUnitYields.None;
         private readonly object _sourceGate = new object();
         private HashSet<string>? _knownSources;
+        private HashSet<string>? _knownLooseSources;
         private long _lastAssetDiscoveryAtMs;
         private int _assetDiscoveryPasses;
         private int _fileSourceChanges;
         private int _assetScan;
+        private int _assetGeneration;
+        private int _publishedAssetGeneration;
         private volatile bool _assetScanAllowed;
         private readonly WorkerPool _pool;
         private readonly NativeBlockStore _cacheStore = new NativeBlockStore();
@@ -100,6 +127,7 @@ namespace MoreUseResources.Core
         private readonly MemoryGovernor _governor;
         private readonly FileCache _fileCache;
         private readonly AssetAudit _assetAudit;
+        private readonly MappedPackResidency _packResidency;
         private readonly GcTuner _gc = new GcTuner();
         private readonly ProcessPriorityTuner _priority = new ProcessPriorityTuner();
         private readonly FrameGuard _frameGuard = new FrameGuard();
@@ -114,6 +142,10 @@ namespace MoreUseResources.Core
         private volatile int _manual;
         private volatile bool _stopping;
         private int _releaseRequested;
+        private JitPrewarm? _jit;
+        private int _jitJobs;
+        private int _adaptivePercent = 100;
+        private volatile bool _extraMemoryAvailable;
         private bool _disposed;
         private string? _controlError;
 
@@ -124,12 +156,14 @@ namespace MoreUseResources.Core
         private long _lastPrivateStamp;
 
         public ResourceController(IMemoryProbe probe, int logicalProcessors, Func<bool>? savingProbe = null,
-            ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null, Func<long>? assetClockMs = null)
+            ResourceSettings? initial = null, IReadOnlyList<string>? assetFolders = null, Func<long>? assetClockMs = null,
+            Func<CancellationToken, IReadOnlyList<string>>? packDiscovery = null)
         {
             _probe = probe;
             _logicalProcessors = Math.Max(1, logicalProcessors);
             _savingProbe = savingProbe;
             _assetFolders = assetFolders;
+            _packDiscovery = packDiscovery;
             _assetClockMs = assetClockMs ?? (() => Environment.TickCount64);
             _settings = (initial ?? new ResourceSettings()).Clone();
             _settings.Clamp();
@@ -137,6 +171,7 @@ namespace MoreUseResources.Core
             _governor = new MemoryGovernor(probe, _cacheStore, _reserveStore);
             _fileCache = new FileCache(_cacheStore, _pool, mayRead: FileReadAllowed, mayCopy: RamCopyAllowed);
             _assetAudit = new AssetAudit(_pool, mayRun: AuditReadAllowed);
+            _packResidency = new MappedPackResidency(_pool, availableForTouch: AvailableForPackTouch);
             _signals = new RawGameSignals { Focused = true };
             _plan = ActivationPlanner.Plan(_settings, new PhaseSnapshot(GamePhase.Startup, PhaseModifiers.None), ManualMode.Auto);
         }
@@ -176,6 +211,20 @@ namespace MoreUseResources.Core
             _settings = copy;
         }
 
+        /// <summary>
+        /// Publishes immutable mod asset paths captured on the game thread after mod loading.
+        /// File scanning never touches the game's live mod list.
+        /// </summary>
+        public void SetAssetFolders(IReadOnlyList<string> folders)
+        {
+            if (folders == null) throw new ArgumentNullException(nameof(folders));
+            lock (_sourceGate)
+            {
+                Volatile.Write(ref _assetFolders, new List<string>(folders));
+                Interlocked.Increment(ref _assetGeneration);
+            }
+        }
+
         /// <summary>Main thread: latest facts about the game.</summary>
         public void PublishSignals(in RawGameSignals signals)
         {
@@ -200,21 +249,78 @@ namespace MoreUseResources.Core
         }
 
         public bool FrameThrottled => _throttled;
+        public int AdaptiveWorkerPercent => Volatile.Read(ref _adaptivePercent);
+        public void SetAdaptiveWorkerPercent(int percent) => Volatile.Write(ref _adaptivePercent, percent);
+        public void ClearJitSources() => Volatile.Write(ref _jit, null);
+
+        /// <summary>
+        /// Game thread: what the other performance mods are doing. Kept for the status panel only;
+        /// it never changes how many workers this mod runs.
+        /// </summary>
+        public void SetExternalParallelism(ExternalParallelism external) =>
+            Volatile.Write(ref _external, external ?? ExternalParallelism.None);
+
+        /// <summary>Game thread: the work units another mod already performs. Only those are skipped.</summary>
+        public void SetWorkUnitYields(WorkUnitYields yields) =>
+            Volatile.Write(ref _yields, yields ?? WorkUnitYields.None);
+        public bool ExtraMemoryAvailable => _extraMemoryAvailable;
+        public JitProgress Jit => Volatile.Read(ref _jit)?.Progress ?? default;
+
+        public void SetJitSources(IEnumerable<Assembly> assemblies, IEnumerable<MethodBase> patchedMethods)
+        {
+            Volatile.Write(ref _jit, new JitPrewarm(assemblies, patchedMethods));
+        }
         public double FrameAverageMs => _frameGuard.AverageMs;
 
-        public void SetFileSources(IEnumerable<string> files)
+        /// <param name="files">Loose mod assets: prefetched and audited.</param>
+        /// <param name="enginePacks">Engine container files the game reads textures from. They are
+        /// prefetched ahead of loose assets and are not audited, because their content is the engine's.</param>
+        public void SetFileSources(IEnumerable<string> files, IEnumerable<string>? enginePacks = null)
         {
             var list = new List<string>(files);
             var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-            var set = new HashSet<string>(list, comparer);
+            var looseSet = new HashSet<string>(list, comparer);
+            var prefetch = new List<string>();
+            var assetPacks = new List<string>();
+            int shaderFiles = 0;
+            if (enginePacks != null)
+            {
+                var packSet = new HashSet<string>(comparer);
+                foreach (string pack in enginePacks)
+                {
+                    if (string.IsNullOrEmpty(pack) || looseSet.Contains(pack) || !packSet.Add(pack)) continue;
+                    prefetch.Add(pack);
+                    if (pack.EndsWith(EnginePackFiles.ShaderCacheExtension, StringComparison.OrdinalIgnoreCase))
+                    {
+                        shaderFiles++;
+                        continue;
+                    }
+                    // Only the read-only asset packs may be mapped; the engine rewrites its cache packs.
+                    if (string.Equals(Path.GetFileName(pack), EnginePackFiles.AssetPackFileName, StringComparison.OrdinalIgnoreCase))
+                        assetPacks.Add(pack);
+                }
+            }
+            int packCount = prefetch.Count;
+            prefetch.AddRange(list);
+            var set = new HashSet<string>(prefetch, comparer);
             lock (_sourceGate)
             {
                 // A mere re-enumeration is not a content change: do not release
                 // cached RAM copies or clear audit results for an identical set.
                 if (_knownSources != null && _knownSources.SetEquals(set)) return;
                 _knownSources = set;
-                _fileCache.SetSources(list);
-                _assetAudit.SetSources(list);
+                Volatile.Write(ref _enginePackFiles, packCount - shaderFiles);
+                Volatile.Write(ref _shaderCacheFiles, shaderFiles);
+                // Engine packs must always be OS-cache-only, even when RamHoldCopies is
+                // enabled. Some ZIPs exceed the 1 GiB native-copy limit.
+                _fileCache.SetSources(prefetch, prefetchOnly: prefetch.GetRange(0, packCount));
+                _packResidency.SetSources(assetPacks);
+                // A new or removed engine pack does not invalidate audit results of loose assets.
+                if (_knownLooseSources == null || !_knownLooseSources.SetEquals(looseSet))
+                {
+                    _knownLooseSources = looseSet;
+                    _assetAudit.SetSources(list);
+                }
                 Interlocked.Increment(ref _fileSourceChanges);
             }
         }
@@ -244,18 +350,29 @@ namespace MoreUseResources.Core
             int maxWorkers = s.EffectiveMaxWorkers(_logicalProcessors);
             int workers = plan.Cpu.Active ? Math.Max(1, (int)Math.Round(maxWorkers * plan.Cpu.Intensity)) : 0;
             bool synthetic = plan.Cpu.Active && s.CpuSyntheticLoad;
+            if (s.AdaptiveWorkers) workers = AdaptiveWorkerBudget.Scale(workers, AdaptiveWorkerPercent);
+            // Other mods' parallel work and the engine's shared job pool are diagnostics, not a cap.
+            workers = CompatibilityPolicy.LimitWorkers(workers, phase.Phase, Volatile.Read(ref _external));
+            WorkUnitYields yields = Volatile.Read(ref _yields);
             if (throttled) workers = synthetic ? Math.Max(1, workers / 2) : Math.Min(1, workers);
             bool holdCopies = s.RamEnabled && s.RamHoldCopies;
             bool fileWork = s.RamFileCache && (plan.Ram.Active || plan.Cpu.Active);
-            bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled;
+            bool auditWork = s.CpuIndexAssets && plan.Cpu.Active && !throttled
+                && !yields.IsYielded(VanillaWorkUnit.AssetAudit)
+                && (!s.AdaptiveWorkers || AdaptiveWorkerPercent > 50);
             bool anyFileWork = fileWork || auditWork;
             if (!anyFileWork) _assetScanAllowed = false;
             if (!fileWork) _fileCache.Suspend();
             if (!auditWork) _assetAudit.Suspend();
-            if (!anyFileWork && !synthetic) workers = 0;
+            var jit = Volatile.Read(ref _jit);
+            bool jitWork = jit != null && s.CpuJitPrewarm && !jit.Progress.Complete
+                && !yields.IsYielded(VanillaWorkUnit.JitPrewarm)
+                && HardwareWork.MayPrepare(phase.Phase, plan.Cpu.Active, throttled, _extraMemoryAvailable);
+            if (!anyFileWork && !synthetic && !jitWork) workers = 0;
             if (anyFileWork && workers == 0) workers = 1; // RAM-only prefetch still needs a service worker
             ThreadPriority priority = s.CpuWorkerPriority == WorkerPriority.BelowNormal ? ThreadPriority.BelowNormal : ThreadPriority.Lowest;
-            _pool.Configure(workers, anyFileWork, synthetic, s.CpuSyntheticDutyPercent, priority);
+            _pool.Configure(workers, anyFileWork || jitWork, synthetic, s.CpuSyntheticDutyPercent, priority);
+            if (jitWork && jit != null) QueueJit(jit, Math.Min(workers, 2));
 
             if (!slow) return;
 
@@ -270,6 +387,15 @@ namespace MoreUseResources.Core
                 _reserveStore.ReleaseAll();
             }
             MemoryStatus memory = _governor.LastStatus;
+            bool memoryOk = memory.FromOperatingSystem
+                && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            _extraMemoryAvailable = memoryOk && !releasing;
+            bool residentWanted = s.Enabled && s.RamEnabled && s.RamFileCache && s.RamResidentPacks;
+            // Views are given back when the feature is off, on the user's release request and under memory pressure.
+            bool releaseInactive = !plan.Ram.Active && s.ReleaseWhenInactive;
+            if (releasing || !residentWanted || !memoryOk || releaseInactive) _packResidency.ReleaseAll();
+            _packResidency.Pump(!releasing && residentWanted && memoryOk && fileWork && plan.Ram.Active && FileReadAllowed(),
+                s.RamResidentPackMiB * ResourceSettings.MiB, s.RamPrefetchRefreshMinutes * 60_000L);
             bool mayRead = !releasing && fileWork && FileReadAllowed() && memory.FromOperatingSystem
                 && memory.AvailablePhysical >= s.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
             bool mayAudit = !releasing && auditWork && AuditReadAllowed() && memory.FromOperatingSystem
@@ -294,6 +420,32 @@ namespace MoreUseResources.Core
             _lastShareStamp = now;
         }
 
+        private void QueueJit(JitPrewarm jit, int concurrent)
+        {
+            int remaining = concurrent - Volatile.Read(ref _jitJobs);
+            for (int i = 0; i < remaining; i++)
+            {
+                Interlocked.Increment(ref _jitJobs);
+                _pool.Enqueue(token =>
+                {
+                    try { jit.RunSlice(() => ReferenceEquals(jit, Volatile.Read(ref _jit)) && MayRunJit(), token); }
+                    finally { Interlocked.Decrement(ref _jitJobs); }
+                });
+            }
+        }
+
+        private bool MayRunJit()
+        {
+            ResourceSettings s = _settings;
+            if (_stopping || !s.CpuJitPrewarm || SavingInProgress() || !_extraMemoryAvailable
+                || Volatile.Read(ref _yields).IsYielded(VanillaWorkUnit.JitPrewarm)) return false;
+            RawGameSignals signals;
+            lock (_gate) { signals = _signals; }
+            PhaseSnapshot phase = PhaseResolver.Resolve(signals, s.IdleBoost ? s.IdleSeconds : 0);
+            var cpu = ActivationPlanner.PlanOne(s, phase, Manual, ResourceKind.Cpu);
+            return HardwareWork.MayPrepare(phase.Phase, cpu.Active, _throttled && s.FrameGuardMs > 0, true);
+        }
+
         private bool SavingInProgress() => _savingProbe?.Invoke() ?? false;
 
         private bool CpuLoadAllowed()
@@ -301,6 +453,14 @@ namespace MoreUseResources.Core
             ResourceSettings s = _settings;
             return !_stopping && s.Enabled && s.CpuEnabled && s.CpuSyntheticLoad && Manual != ManualMode.Paused
                 && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
+        }
+
+        private long AvailableForPackTouch()
+        {
+            MemoryStatus status = _probe.Read();
+            if (!status.FromOperatingSystem) return 0;
+            long floor = _settings.RamMinFreeMiB * ResourceSettings.MiB + MemoryGovernor.MarginBytes;
+            return Math.Max(0, status.AvailablePhysical - floor);
         }
 
         private bool FileReadAllowed()
@@ -317,6 +477,7 @@ namespace MoreUseResources.Core
         {
             ResourceSettings s = _settings;
             return !_stopping && s.Enabled && s.CpuEnabled && s.CpuIndexAssets && Manual != ManualMode.Paused
+                && (!s.AdaptiveWorkers || AdaptiveWorkerPercent > 50)
                 && (!SavingInProgress() || s.CpuPhases[(int)GamePhase.Saving]);
         }
 
@@ -336,11 +497,18 @@ namespace MoreUseResources.Core
 
         private void QueueAssetScan(int rescanMinutes)
         {
-            if (_assetFolders == null) return;
+            IReadOnlyList<string>? folders;
+            int generation;
+            lock (_sourceGate)
+            {
+                folders = _assetFolders;
+                generation = _assetGeneration;
+            }
+            if (folders == null) return;
             int state = Volatile.Read(ref _assetScan);
             if (state == 1) return; // exactly one live scanner at a time
             long now = _assetClockMs();
-            if (state == 2)
+            if (state == 2 && generation == Volatile.Read(ref _publishedAssetGeneration))
             {
                 long last = Interlocked.Read(ref _lastAssetDiscoveryAtMs);
                 if (rescanMinutes <= 0 || now < last || now - last < rescanMinutes * 60_000L)
@@ -351,14 +519,27 @@ namespace MoreUseResources.Core
             {
                 try
                 {
-                    List<string> files = GameAssetFiles.Discover(_assetFolders, token,
-                        () => _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()));
-                    if (!token.IsCancellationRequested && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed()))
+                    bool StillCurrent() => !token.IsCancellationRequested && generation == Volatile.Read(ref _assetGeneration)
+                        && _assetScanAllowed && (FileReadAllowed() || AuditReadAllowed());
+                    List<string> files = GameAssetFiles.Discover(folders, token, StillCurrent);
+                    if (StillCurrent())
                     {
-                        SetFileSources(files);
-                        Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
-                        Interlocked.Increment(ref _assetDiscoveryPasses);
-                        Volatile.Write(ref _assetScan, 2);
+                        IReadOnlyList<string>? packs = null;
+                        if (_packDiscovery != null)
+                        {
+                            try { packs = _packDiscovery(token); }
+                            catch (IOException) { }
+                            catch (UnauthorizedAccessException) { }
+                        }
+                        lock (_sourceGate)
+                        {
+                            if (!StillCurrent()) return;
+                            SetFileSources(files, packs);
+                            Interlocked.Exchange(ref _lastAssetDiscoveryAtMs, _assetClockMs());
+                            Interlocked.Increment(ref _assetDiscoveryPasses);
+                            Volatile.Write(ref _publishedAssetGeneration, generation);
+                            Volatile.Write(ref _assetScan, 2);
+                        }
                     }
                 }
                 finally
@@ -391,6 +572,7 @@ namespace MoreUseResources.Core
                 catch (Exception ex)
                 {
                     // Never let the control thread die; with no plan updates everything would keep its last state.
+                    _extraMemoryAvailable = false;
                     _controlError = ex.GetType().Name + ": " + ex.Message;
                     _assetScanAllowed = false;
                     _fileCache.Suspend();
@@ -404,6 +586,7 @@ namespace MoreUseResources.Core
         public ControllerStatus GetStatus()
         {
             AssetAuditSnapshot audit = _assetAudit.Snapshot;
+            PackResidencySnapshot resident = _packResidency.Snapshot;
             long now = Environment.TickCount64;
             if (now - _lastPrivateStamp > 1000)
             {
@@ -424,6 +607,9 @@ namespace MoreUseResources.Core
                 FrameThrottled = _throttled,
                 FrameAverageMs = _frameGuard.AverageMs,
                 WorkerThreads = _pool.MaxThreads,
+                WorkerCap = _settings.EffectiveMaxWorkers(_logicalProcessors),
+                External = Volatile.Read(ref _external),
+                Yields = Volatile.Read(ref _yields),
                 WorkersActive = _pool.ActiveWorkers,
                 SyntheticLoad = _pool.SyntheticLoad,
                 PendingJobs = _pool.PendingJobs,
@@ -446,8 +632,18 @@ namespace MoreUseResources.Core
                 FileBytesRead = _fileCache.BytesRead,
                 FileErrors = _fileCache.Errors,
                 FilesDeferredForBudget = _fileCache.DeferredForBudget,
+                FilesWarmedWithoutCopy = _fileCache.BudgetFallbackWarms,
+                ShaderCacheFiles = Volatile.Read(ref _shaderCacheFiles),
                 FilePassComplete = _fileCache.PassComplete,
                 FileDiscoveryPasses = Volatile.Read(ref _assetDiscoveryPasses),
+                EnginePackFiles = Volatile.Read(ref _enginePackFiles),
+                ResidentPackSources = resident.Sources,
+                ResidentPackFiles = resident.MappedFiles,
+                ResidentPackBytes = resident.MappedBytes,
+                ResidentPackPasses = resident.Passes,
+                ResidentPacksDeferred = resident.Deferred,
+                ResidentPackErrors = resident.Errors,
+                ResidentPackLastError = resident.LastError,
                 FileSourceChanges = Volatile.Read(ref _fileSourceChanges),
                 FileRefreshPasses = _fileCache.PeriodicRefreshes,
                 AuditSources = audit.Sources,
@@ -501,6 +697,7 @@ namespace MoreUseResources.Core
             {
                 thread.Join(1500);
             }
+            _packResidency.Dispose();
             _pool.Dispose();
             _gc.Apply(false);
             _priority.Apply(ProcessPriorityChoice.Unchanged);

@@ -35,6 +35,8 @@ namespace MoreUseResources.Core
         private readonly Dictionary<string, string> _copyHashes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private List<string> _files = new List<string>();
+        private HashSet<string> _prefetchOnly = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _oversize = new HashSet<string>(StringComparer.Ordinal);
         private int _cursor;
         private int _inFlight;
         private int _deferredForBudget;
@@ -58,6 +60,7 @@ namespace MoreUseResources.Core
         private long _filesRead;
         private long _errors;
         private long _skippedLarge;
+        private long _budgetFallbackWarms;
         private string? _lastError;
 
         public FileCache(NativeBlockStore store, WorkerPool pool, Func<long>? clockMs = null, Func<bool>? mayRead = null, Func<bool>? mayCopy = null)
@@ -74,6 +77,8 @@ namespace MoreUseResources.Core
         public long FilesRead => Interlocked.Read(ref _filesRead);
         public long Errors => Interlocked.Read(ref _errors);
         public long SkippedLarge => Interlocked.Read(ref _skippedLarge);
+        /// <summary>Files read into the OS cache because the native-copy budget had no room for them.</summary>
+        public long BudgetFallbackWarms => Interlocked.Read(ref _budgetFallbackWarms);
         public string? LastError => Volatile.Read(ref _lastError);
         public int InFlight => Volatile.Read(ref _inFlight);
 
@@ -89,7 +94,7 @@ namespace MoreUseResources.Core
         }
 
         /// <summary>Replaces the list of candidate files (highest priority first) and restarts the pass.</summary>
-        public void SetSources(IEnumerable<string> files)
+        public void SetSources(IEnumerable<string> files, IEnumerable<string>? prefetchOnly = null)
         {
             var list = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -97,9 +102,16 @@ namespace MoreUseResources.Core
             {
                 if (!string.IsNullOrEmpty(f) && seen.Add(f)) list.Add(f);
             }
+            var osOnly = new HashSet<string>(StringComparer.Ordinal);
+            if (prefetchOnly != null)
+            {
+                foreach (string f in prefetchOnly)
+                    if (seen.Contains(f)) osOnly.Add(f);
+            }
             lock (_gate)
             {
                 _files = list;
+                _prefetchOnly = osOnly;
                 Reset();
                 _needsPass = false;
                 _cooldownUntilMs = 0;
@@ -114,6 +126,7 @@ namespace MoreUseResources.Core
                 _done.Clear();
                 _warmed.Clear();
                 _copyHashes.Clear();
+                _oversize.Clear();
                 // Reset means a fresh live-file snapshot: retained native copies must
                 // be released before the same paths can be committed again.
                 _store.ReleaseAll();
@@ -213,7 +226,8 @@ namespace MoreUseResources.Core
                     if (_inFlight >= maxInFlight) return;
                     if (_cursor == 0) _limitAtPassStart = limitBytes;
                     path = _files[_cursor++];
-                    copy = !_maintenancePass && _readCopies;
+                    copy = !_maintenancePass && _readCopies
+                        && !_prefetchOnly.Contains(path) && !_oversize.Contains(path);
                     if (copy ? _done.Contains(path) : _warmed.Contains(path)) continue;
                     _inFlight++;
                     generation = _generation;
@@ -254,6 +268,7 @@ namespace MoreUseResources.Core
             bool completed = false;
             bool deferred = false;
             bool copied = false;
+            bool warmedWithoutCopy = false;
             try
             {
                 if (!MayRead(generation, token)) return;
@@ -266,16 +281,33 @@ namespace MoreUseResources.Core
                     completed = true;
                     return;
                 }
+                if (copy && length > MaxFileBytes)
+                {
+                    // The copy is too large, but the file still needs to warm the OS cache.
+                    Interlocked.Increment(ref _skippedLarge);
+                    lock (_gate)
+                    {
+                        if (generation == _generation) _oversize.Add(path);
+                    }
+                    copy = false;
+                }
                 if (copy)
                 {
-                    if (length > MaxFileBytes)
-                    {
-                        Interlocked.Increment(ref _skippedLarge);
-                        completed = true;
-                        return;
-                    }
                     if (!TryBeginCopy(length, generation, token, out IntPtr ptr, out deferred))
                     {
+                        if (!deferred) return;
+                        // Only the private copy lacks budget. The read permission still holds, so the
+                        // real file is warmed in the OS cache now and the copy is retried later.
+                        bool alreadyWarm;
+                        lock (_gate) { alreadyWarm = generation == _generation && _warmed.Contains(path); }
+                        if (alreadyWarm) return;
+                        if (ReadAndDiscard(handle, length, generation, token, false, out _))
+                        {
+                            warmedWithoutCopy = true;
+                            Interlocked.Increment(ref _filesRead);
+                            Interlocked.Increment(ref _budgetFallbackWarms);
+                        }
+                        else deferred = false; // interrupted: let a later pass visit the file again
                         return;
                     }
                     bool ok = false;
@@ -350,6 +382,7 @@ namespace MoreUseResources.Core
                             if (copy) _done.Add(path);
                             else _warmed.Add(path);
                         }
+                        if (warmedWithoutCopy) _warmed.Add(path);
                         if (deferred) _deferredForBudget++;
                         // Interrupted (paused or cancelled): make sure a later pass picks it up again.
                         if (!completed && !deferred) _needsPass = true;

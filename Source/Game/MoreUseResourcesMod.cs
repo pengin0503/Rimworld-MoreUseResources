@@ -64,19 +64,58 @@ public sealed class MoreUseResourcesMod : Mod
         if (status.ControlError != null || status.WorkerLastError != null)
             list.Label("MUR_BackgroundError".Translate());
 
+        list.Label("MUR_LoadTimingStatus".Translate(LoadTiming.Recorder.Report()));
+        if (runtime.XmlYieldedToWowgag)
+            list.Label("MUR_XmlYielded".Translate(StateName(runtime.WowgagXmlReuse)));
         list.Label("MUR_CurrentPhase".Translate(PhaseName(status.Plan.Phase.Phase), ModeName(runtime.Manual)));
         list.Label("MUR_CpuStatus".Translate(Reason(status.Plan.Cpu), status.WorkersActive, status.PendingJobs));
         list.Label("MUR_CpuWorkerUsage".Translate((status.WorkerCpuShare * 100).ToString("F1"), status.JobsCompleted, status.JobsFailed));
+        DrawExternal(list, status);
         PerformanceSnapshot perf = runtime.Performance;
         list.Label("MUR_PerformanceStatus".Translate(perf.FramesPerSecond.ToString("F1"),
             perf.TicksPerSecond.ToString("F1"), perf.AverageFrameIntervalMs.ToString("F1"),
             perf.WorstFrameIntervalMs.ToString("F1")));
+        if (runtime.Gc.HasData)
+        {
+            GcSnapshot gc = runtime.Gc.Latest;
+            list.Label("MUR_GcStatus".Translate(gc.Gen0Collections, gc.Gen1Collections, gc.Gen2Collections,
+                gc.PauseMs.ToString("F0"), gc.PausePercent.ToString("F2"), gc.AllocatedMiBPerSecond.ToString("F1"),
+                InMiB(gc.HeapBytes), (gc.ServerGc ? "Server" : "Workstation") + "/" + gc.Latency));
+        }
+        else list.Label("MUR_GcPending".Translate());
+        if (runtime.GcCurrent is { } current)
+        {
+            if (list.ButtonText("MUR_GcSaveBaseline".Translate())) runtime.SaveGcBaseline();
+            if (runtime.GcBaseline is { } baseline && current.TryCompare(baseline, out var difference))
+                list.Label("MUR_GcComparison".Translate(PhaseName(current.Phase), baseline.ServerGc ? "Server" : "Workstation",
+                    baseline.Latency.ToString(), difference.CollectionsPerMinute.ToString("+0.0;-0.0;0.0"),
+                    difference.PauseMsPerMinute.ToString("+0.0;-0.0;0.0"),
+                    (difference.HeapBytes / (double)ResourceSettings.MiB).ToString("+0.0;-0.0;0.0"),
+                    difference.AllocatedMiBPerSecond.ToString("+0.0;-0.0;0.0"),
+                    (difference.CommittedBytes / (double)ResourceSettings.MiB).ToString("+0.0;-0.0;0.0")));
+        }
+        if (runtime.GcBaseline != null && (runtime.GcCurrent == null || !runtime.GcCurrent.CanCompareWith(runtime.GcBaseline)))
+            list.Label("MUR_GcComparisonPending".Translate(PhaseName(runtime.GcBaseline.Phase)));
+        if (settings.Value.CpuJitPrewarm && runtime.JitYieldedToWowgag)
+            list.Label("MUR_JitWowgag".Translate());
+        else if (settings.Value.CpuJitPrewarm)
+        {
+            JitProgress jit = runtime.Jit;
+            list.Label("MUR_JitStatus".Translate(jit.Prepared, jit.Failed, jit.Skipped, jit.WorkMs.ToString("F0"),
+                (jit.Complete ? "MUR_JitComplete" : "MUR_JitPending").Translate().ToString()));
+        }
+        if (settings.Value.CachePatchedXml || PatchedXmlCache.StatusKey != "MUR_PatchedXmlOff")
+            list.Label(PatchedXmlCache.StatusKey.Translate());
         list.Label("MUR_RamStatus".Translate(Reason(status.Plan.Ram),
             InMiB(status.CacheHeldBytes), InMiB(status.ReserveHeldBytes)));
         list.Label("MUR_PrefetchStatus".Translate(status.FileCursor, status.FileSources, status.FilesRead,
             InMiB(status.FileBytesRead), status.FileErrors, status.FilesDeferredForBudget));
+        list.Label("MUR_PrefetchFallbackStatus".Translate(status.FilesWarmedWithoutCopy, status.ShaderCacheFiles));
         list.Label("MUR_PrefetchMaintenanceStatus".Translate(status.FileRefreshPasses));
         list.Label("MUR_FileDiscoveryStatus".Translate(status.FileDiscoveryPasses, status.FileSourceChanges));
+        list.Label("MUR_EnginePackStatus".Translate(status.EnginePackFiles));
+        list.Label("MUR_ResidentPackStatus".Translate(status.ResidentPackFiles, status.ResidentPackSources,
+            InMiB(status.ResidentPackBytes), status.ResidentPackPasses, status.ResidentPacksDeferred, status.ResidentPackErrors));
         list.Label("MUR_AuditStatus".Translate(status.AuditCompleted, status.AuditSources, status.AuditDuplicates,
             InMiB(status.AuditDuplicateBytes), InMiB(status.AuditHashedBytes), status.AuditErrors, status.AuditSkipped));
         list.Label("MUR_AuditRescanStatus".Translate(status.AuditPassesCompleted, status.AuditChangedFiles));
@@ -92,13 +131,38 @@ public sealed class MoreUseResourcesMod : Mod
         else
             list.Label("MUR_NoMemoryProbe".Translate());
 
+        if (settings.Value.AdaptiveWorkers)
+            list.Label("MUR_AdaptiveWorkerStatus".Translate(perf.P95FrameIntervalMs, runtime.AdaptiveWorkerPercent));
         TexturePrewarm gpu = runtime.Gpu;
         list.Label("MUR_GpuStatus".Translate(gpu.StatusKey.Translate().ToString(), gpu.Uploaded));
         list.Label("MUR_GpuMaintenanceStatus".Translate(gpu.PassesCompleted));
         list.Label("MUR_GpuQueueStatus".Translate(gpu.DeferredCount, gpu.DroppedDeferred,
             gpu.RejectedTextures, gpu.FailedUploads));
+        if (settings.Value.GpuEnabled)
+            list.Label("MUR_GpuDemandStatus".Translate(gpu.AtlasSourcesSkipped, gpu.PriorityUploads));
+        if (settings.Value.GpuEnabled && settings.Value.GpuDemandPriority)
+            list.Label("MUR_DemandHistoryStatus".Translate(gpu.HistoryCandidates, gpu.HistoryUploads, runtime.DemandHistorySaves));
         if (gpu.Memory.DriverReported)
             list.Label("MUR_GpuBudgetStatus".Translate(InMiB(gpu.Memory.UsageBytes), InMiB(gpu.Memory.BudgetBytes)));
+
+        EngineExperiments experiments = runtime.Experiments;
+        if (settings.Value.UncompressedTextureCache)
+            list.Label((experiments.UncompressedActive ? "MUR_TextureCodecActive" : "MUR_TextureCodecInactive").Translate());
+        if (settings.Value.GpuPrepareGraphics)
+            list.Label("MUR_GraphicWarmStatus".Translate(experiments.PreparedGraphics, experiments.GraphicsFailures));
+        if (settings.Value.GpuPrepareSections)
+        {
+            if (experiments.SectionWorkFaulted || !VanillaSectionWork.Available)
+                list.Label("MUR_SectionUnavailable".Translate());
+            else
+                list.Label(status.Yields.OwnerOf(VanillaWorkUnit.SectionRegeneration) is { } sectionOwner
+                    ? "MUR_SectionYielded".Translate(sectionOwner)
+                    : "MUR_SectionStatus".Translate(experiments.Sections.SectionsRegenerated));
+        }
+        if (settings.Value.GpuAnisotropicMeshes)
+            list.Label(experiments.QualityConflict
+                ? "MUR_AnisoConflict".Translate()
+                : "MUR_AnisoStatus".Translate(experiments.RefinedTextures));
 
         Rect row = list.GetRect(30);
         float width = (row.width - 18) / 4;
@@ -114,15 +178,60 @@ public sealed class MoreUseResourcesMod : Mod
         list.GapLine();
     }
 
+    /// <summary>Settings, live state and patch registration of the other performance mods, kept apart on purpose.</summary>
+    private void DrawExternal(Listing_Standard list, ControllerStatus status)
+    {
+        ExternalParallelism external = status.External;
+        list.Label("MUR_ExternalNoReduce".Translate(status.WorkerCap, status.WorkersActive));
+        if (external.Wowgag != ExternalFeatureState.Absent)
+            list.Label("MUR_ExternalWowgag".Translate(StateName(external.Wowgag), Configured(external.WowgagWorkers),
+                external.WowgagWorkers?.Running is { } running ? running.ToString() : "MUR_ExternalUnread".Translate().ToString()));
+        if (external.Overclock != ExternalFeatureState.Absent)
+            list.Label("MUR_ExternalOverclock".Translate(StateName(external.Overclock), Configured(external.OverclockWorkers),
+                external.OverclockWorkers?.Running is { } overclockRunning ? overclockRunning.ToString() : "MUR_ExternalUnread".Translate().ToString()));
+        string owners = runtime.Compatibility.PathGridOwners;
+        if (external.AxenPathGrid != ExternalFeatureState.Absent || owners.Length > 0)
+            list.Label("MUR_ExternalAxen".Translate(StateName(external.AxenPathGrid),
+                owners.Length > 0 ? owners : "MUR_ExternalNone".Translate().ToString()));
+        if (runtime.Compatibility.SharedPoolReadable && (external.AxenPathGrid != ExternalFeatureState.Absent || owners.Length > 0))
+            list.Label("MUR_ExternalSharedPool".Translate(external.SharedPoolWorkers,
+                (external.SharedPoolBusy ? "MUR_ExternalYes" : "MUR_ExternalNo").Translate().ToString()));
+        if (status.Yields.Count > 0)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var pair in status.Yields.All()) parts.Add(pair.Key + " → " + pair.Value);
+            list.Label("MUR_YieldedUnits".Translate(string.Join(", ", parts)));
+        }
+    }
+
+    private static string StateName(ExternalFeatureState state) => ("MUR_ExternalState" + state).Translate();
+
+    private static string Configured(ExternalWorkerSetting? setting) =>
+        setting?.Configured is not { } value ? "MUR_ExternalUnread".Translate()
+        : value == 0 ? "MUR_ExternalAuto".Translate() : value.ToString();
+
     private void DrawGeneral(Listing_Standard list, ResourceSettings s)
     {
         Toggle(list, "MUR_Enabled", ref s.Enabled);
+        if (list.ButtonText("MUR_AssetBoost".Translate()))
+        {
+            s.ApplyAssetBoost();
+            runtime.Manual = ManualMode.Auto;
+            changed = true;
+        }
         Toggle(list, "MUR_WorldAllowed", ref s.AllowInWorldView);
         Toggle(list, "MUR_UnfocusedAllowed", ref s.AllowWhenUnfocused);
         Toggle(list, "MUR_ReleaseInactive", ref s.ReleaseWhenInactive);
         Toggle(list, "MUR_IdleBoost", ref s.IdleBoost);
         Slider(list, "MUR_IdleSeconds", ref s.IdleSeconds, 10, 3600, 10);
         Slider(list, "MUR_FrameGuard", ref s.FrameGuardMs, 0, 500, 10);
+        Toggle(list, "MUR_RecordLoadTiming", ref s.RecordLoadTiming);
+        if (TexturePrewarm.SupportedBuild)
+        {
+            Toggle(list, "MUR_StartupPackExport", ref s.ExportStartupPacks);
+            Toggle(list, "MUR_CachePatchedXml", ref s.CachePatchedXml);
+            Toggle(list, "MUR_UncompressedTextureCache", ref s.UncompressedTextureCache);
+        }
     }
 
     private void DrawPhases(Listing_Standard list, ResourceSettings s)
@@ -197,6 +306,8 @@ public sealed class MoreUseResourcesMod : Mod
         list.GapLine();
         Toggle(list, "MUR_CpuEnabled", ref s.CpuEnabled);
         Toggle(list, "MUR_CpuIndexAssets", ref s.CpuIndexAssets);
+        Toggle(list, "MUR_CpuJitPrewarm", ref s.CpuJitPrewarm);
+        Toggle(list, "MUR_AdaptiveWorkers", ref s.AdaptiveWorkers);
         Slider(list, "MUR_CpuAuditInterval", ref s.CpuAuditRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_FileDiscoveryInterval", ref s.AssetDiscoveryRescanMinutes, 0, 120, 5);
         Slider(list, "MUR_Workers", ref s.CpuMaxWorkers, 0, Math.Min(256, Math.Max(Environment.ProcessorCount, 4)), 1);
@@ -207,8 +318,11 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_PrefetchEnabled", ref s.RamFileCache);
         Slider(list, "MUR_PrefetchRefreshInterval", ref s.RamPrefetchRefreshMinutes, 0, 120, 5);
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
+        Toggle(list, "MUR_RamGcLowLatency", ref s.RamGcLowLatency);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
+        Toggle(list, "MUR_ResidentPacks", ref s.RamResidentPacks);
+        Slider(list, "MUR_ResidentPackLimit", ref s.RamResidentPackMiB, 64, 16384, 64);
         Toggle(list, "MUR_RamReserve", ref s.RamReserve);
         Slider(list, "MUR_RamReserveLimit", ref s.RamReserveMiB, 64, 8192, 64);
         Slider(list, "MUR_RamKeepFree", ref s.RamMinFreeMiB, 1024, 32768, 256);
@@ -217,6 +331,11 @@ public sealed class MoreUseResourcesMod : Mod
         if (TexturePrewarm.SupportedBuild)
         {
             Toggle(list, "MUR_GpuEnabled", ref s.GpuEnabled);
+            Toggle(list, "MUR_GpuResidencyBoost", ref s.GpuResidencyBoost);
+            Toggle(list, "MUR_GpuDemandPriority", ref s.GpuDemandPriority);
+            Toggle(list, "MUR_GpuPrepareGraphics", ref s.GpuPrepareGraphics);
+            Toggle(list, "MUR_GpuAnisotropicMeshes", ref s.GpuAnisotropicMeshes);
+            Toggle(list, "MUR_GpuPrepareSections", ref s.GpuPrepareSections);
             Slider(list, "MUR_GpuTarget", ref s.GpuTargetPercent, 10, ResourceSettings.MaxGpuTargetPercent, 1);
             Slider(list, "MUR_GpuKeepFree", ref s.GpuKeepFreeMiB, 512, 8192, 256);
             Slider(list, "MUR_GpuFrameBudget", ref s.GpuFrameBudgetTenthMs, 2, 80, 1);

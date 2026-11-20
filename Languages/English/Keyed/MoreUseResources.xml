@@ -56,6 +56,14 @@
   <MUR_PrefetchRefreshInterval>OS file cache refresh interval {0} minutes (0 disables)</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>Completed OS file cache maintenance passes {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_FileDiscoveryStatus>Asset folder discoveries {0} · Source list changes {1}</MUR_FileDiscoveryStatus>
+  <MUR_EnginePackStatus>Engine texture-cache and asset packs in the prefetch list: {0}</MUR_EnginePackStatus>
+  <MUR_ResidentPackStatus>Resident asset packs {0}/{1} · {2} MiB mapped · passes {3} · over limit {4} · errors {5}</MUR_ResidentPackStatus>
+  <MUR_ResidentPacks>Experimental: keep Assets.zip packs resident in RAM (needs file prefetch; maps the same read-only files the engine maps; no speed-up is guaranteed)</MUR_ResidentPacks>
+  <MUR_ResidentPackLimit>Resident asset pack limit (MiB)</MUR_ResidentPackLimit>
+  <MUR_LoadTimingStatus>Load timing: {0}</MUR_LoadTimingStatus>
+  <MUR_RecordLoadTiming>Record how long the load stages take (written to the log; applies on next start)</MUR_RecordLoadTiming>
+  <MUR_GcStatus>GC in the last 10 s: gen0 {0} · gen1 {1} · gen2 {2} · stopped {3} ms ({4}%) · allocating {5} MiB/s · managed heap {6} MiB · mode {7}</MUR_GcStatus>
+  <MUR_GcPending>GC: measuring the first 10 seconds</MUR_GcPending>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>
@@ -94,4 +102,56 @@
   <MUR_MemoryAtTarget>At target</MUR_MemoryAtTarget>
   <MUR_MemoryLimitedByFreeMemory>Waiting for available RAM</MUR_MemoryLimitedByFreeMemory>
   <MUR_MemoryPressure>Releasing under memory pressure</MUR_MemoryPressure>
+  <MUR_GcSaveBaseline>Save this GC sample as baseline</MUR_GcSaveBaseline>
+  <MUR_GcComparison>GC vs baseline ({0}; {1}/{2}): {3} collections/min, {4} pause ms/min, {5} MiB heap, {6} MiB/s allocated, {7} MiB GC committed</MUR_GcComparison>
+  <MUR_GcComparisonPending>Waiting for a GC sample at the baseline phase and speed ({0}); refresh an older play baseline</MUR_GcComparisonPending>
+  <MUR_CachePatchedXml>Cache supported XML patch results (experimental, restart required)</MUR_CachePatchedXml>
+  <MUR_PatchedXmlOff>Patched XML cache takes effect on the next launch</MUR_PatchedXmlOff>
+  <MUR_PatchedXmlWaiting>Waiting for the startup XML patch stage</MUR_PatchedXmlWaiting>
+  <MUR_PatchedXmlBypass>XML cache bypassed; normal patching used</MUR_PatchedXmlBypass>
+  <MUR_PatchedXmlHit>Reused supported XML patch results</MUR_PatchedXmlHit>
+  <MUR_PatchedXmlMiss>XML cache miss; normal patching used</MUR_PatchedXmlMiss>
+  <MUR_UncompressedTextureCache>Write new texture cache entries uncompressed (experimental)</MUR_UncompressedTextureCache>
+  <MUR_TextureCodecActive>New texture cache writes use the uncompressed codec</MUR_TextureCodecActive>
+  <MUR_TextureCodecInactive>Uncompressed cache writes are inactive</MUR_TextureCodecInactive>
+  <MUR_CpuJitPrewarm>Prepare managed game and mod methods in advance (experimental)</MUR_CpuJitPrewarm>
+  <MUR_JitStatus>JIT: {0} prepared, {1} failed, {2} skipped, {3} ms CPU work; {4}</MUR_JitStatus>
+  <MUR_JitComplete>finished</MUR_JitComplete>
+  <MUR_JitPending>in progress or waiting for an eligible phase</MUR_JitPending>
+  <MUR_GpuResidencyBoost>Allow texture prewarming up to 75% of device budget with engine offloading (experimental)</MUR_GpuResidencyBoost>
+  <MUR_GpuPrepareGraphics>Prepare eligible graphics and materials in menus and while paused (experimental)</MUR_GpuPrepareGraphics>
+  <MUR_GraphicWarmStatus>Graphics preparation: {0} ready, {1} failed</MUR_GraphicWarmStatus>
+  <MUR_GpuAnisotropicMeshes>Use up to 4× anisotropy on eligible repeating mesh textures (experimental)</MUR_GpuAnisotropicMeshes>
+  <MUR_AnisoConflict>Anisotropy inactive due to an installed graphics mod</MUR_AnisoConflict>
+  <MUR_AnisoStatus>Textures with enhanced mesh filtering: {0}</MUR_AnisoStatus>
+  <MUR_RamGcLowLatency>Keep the existing GC low-latency mode enabled in eligible RAM phases</MUR_RamGcLowLatency>
+  <MUR_AssetBoost>Apply the real asset boost preset</MUR_AssetBoost>
+  <MUR_StartupPackExport>Export the active asset packs for optional launch-time prewarming</MUR_StartupPackExport>
+  <MUR_AdaptiveWorkers>Adjust background workers using play performance</MUR_AdaptiveWorkers>
+  <MUR_AdaptiveWorkerStatus>P95 frame interval {0} ms · adaptive worker limit {1}%</MUR_AdaptiveWorkerStatus>
+  <MUR_GpuDemandPriority>Prioritize textures the game actually reloaded</MUR_GpuDemandPriority>
+  <MUR_GpuDemandStatus>Atlas source skips {0} · demand-priority uploads {1}</MUR_GpuDemandStatus>
+  <MUR_JitWowgag>JIT prewarming deferred to WOWGAG</MUR_JitWowgag>
+  <MUR_ExternalNoReduce>Own worker limit {0} · running now {1}. Parallel work of other mods and the engine's shared job pool never lower this limit</MUR_ExternalNoReduce>
+  <MUR_ExternalWowgag>WOWGAG parallel features: {0} · parWorkers setting {1} · workers it runs now {2}. Change the count in WOWGAG's own settings</MUR_ExternalWowgag>
+  <MUR_ExternalOverclock>Overclock parallel pawn ticks: {0} · parallelThreads setting {1} · worker threads running now {2} (the setting applies after a restart). Change the count in Overclock's own settings</MUR_ExternalOverclock>
+  <MUR_ExternalAxen>Axen path grid patch: {0} · Harmony owners on the path grid scheduler: {1}. Axen uses the engine's shared job pool and has no worker setting of its own</MUR_ExternalAxen>
+  <MUR_ExternalSharedPool>Engine shared job pool: {0} workers · work pending right now: {1} (shown for diagnosis only)</MUR_ExternalSharedPool>
+  <MUR_ExternalStateAbsent>not installed</MUR_ExternalStateAbsent>
+  <MUR_ExternalStateInactive>off or stopped</MUR_ExternalStateInactive>
+  <MUR_ExternalStateActive>active</MUR_ExternalStateActive>
+  <MUR_ExternalStateUnknown>cannot be determined</MUR_ExternalStateUnknown>
+  <MUR_ExternalAuto>0 (automatic)</MUR_ExternalAuto>
+  <MUR_ExternalUnread>not readable</MUR_ExternalUnread>
+  <MUR_ExternalNone>none</MUR_ExternalNone>
+  <MUR_ExternalYes>yes</MUR_ExternalYes>
+  <MUR_ExternalNo>no</MUR_ExternalNo>
+  <MUR_YieldedUnits>Left to another mod that already does the same work: {0}. All other work keeps running</MUR_YieldedUnits>
+  <MUR_XmlYielded>WOWGAG XML reuse is {0}: LoadModXML and CombineIntoUnifiedXML are not timed, and the patched XML cache is left to WOWGAG</MUR_XmlYielded>
+  <MUR_PrefetchFallbackStatus>Warmed in the OS cache while the private copy waits for budget: {0} files · compiled shader records in the prefetch list: {1}</MUR_PrefetchFallbackStatus>
+  <MUR_GpuPrepareSections>While paused, rebuild changed off-screen sections of the current map (experimental)</MUR_GpuPrepareSections>
+  <MUR_SectionUnavailable>Section preparation is unavailable on this game build or stopped after an error</MUR_SectionUnavailable>
+  <MUR_SectionStatus>Off-screen sections rebuilt while paused: {0}</MUR_SectionStatus>
+  <MUR_SectionYielded>Section rebuilding is left to {0}, which replaces the game's section update</MUR_SectionYielded>
+  <MUR_DemandHistoryStatus>Texture demand history: {0} candidates from the last session · {1} uploaded · {2} saves</MUR_DemandHistoryStatus>
 </LanguageData>

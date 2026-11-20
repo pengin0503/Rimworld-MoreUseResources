@@ -243,7 +243,60 @@ namespace MoreUseResources.Tests
             Assert.Equal(800_000, store.CommittedBytes);     // a + b fit, c does not
             Assert.Equal(1, cache.DeferredForBudget);
             Assert.Equal(1, cache.Errors);                   // the missing file
-            Assert.Equal(2, cache.FilesRead);
+            Assert.Equal(3, cache.FilesRead);                // c is still read into the OS cache
+            Assert.Equal(1, cache.BudgetFallbackWarms);
+        }
+
+        [Fact]
+        public void RamCopyBudgetMissWarmsOsCacheAndRetriesCopy()
+        {
+            string a = MakeFile("budget.bin", 300_000);
+            long[] clock = { 0 };
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, () => clock[0]);
+            cache.SetSources(new[] { a });
+
+            // The copy budget is smaller than the file; periodic refresh is off.
+            PumpUntil(cache, () => cache.PassComplete, true, 100_000);
+            Assert.Equal(1, cache.BudgetFallbackWarms);
+            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(300_000, cache.BytesRead);
+            Assert.Equal(0, store.CommittedBytes);
+            Assert.Equal(1, cache.DeferredForBudget);
+
+            // The same pending copy does not make the file be read over and over.
+            for (int i = 0; i < 20; i++) { cache.Pump(true, true, 100_000); Thread.Sleep(5); }
+            Assert.Equal(300_000, cache.BytesRead);
+
+            clock[0] += 31_000;
+            long grown = 100_000 + (64L << 20);
+            PumpUntil(cache, () => store.CommittedBytes == 300_000, true, grown);
+            Assert.Equal(1, cache.BudgetFallbackWarms);
+            Assert.Equal(0, cache.DeferredForBudget);
+        }
+
+        [Fact]
+        public void Budget_miss_does_not_warm_once_read_permission_is_withdrawn()
+        {
+            string a = MakeFile("revoked.bin", 300_000);
+            bool mayRead = true;
+            long[] clock = { 0 };
+            using var pool = new WorkerPool(1);
+            using var store = new NativeBlockStore();
+            pool.Configure(1, true, false, 50, ThreadPriority.Lowest);
+            var cache = new FileCache(store, pool, () => clock[0], mayRead: () => Volatile.Read(ref mayRead));
+            cache.SetSources(new[] { a });
+            Volatile.Write(ref mayRead, false);
+            for (int i = 0; i < 20; i++) { cache.Pump(true, true, 100_000); Thread.Sleep(5); }
+            Assert.Equal(0, cache.BudgetFallbackWarms);
+            Assert.Equal(0, cache.BytesRead);
+
+            Volatile.Write(ref mayRead, true);
+            clock[0] += 6_000; // past the retry cooldown of the interrupted pass
+            PumpUntil(cache, () => cache.BudgetFallbackWarms == 1, true, 100_000);
+            Assert.Equal(0, store.CommittedBytes);
         }
 
         [Fact]
@@ -290,7 +343,8 @@ namespace MoreUseResources.Tests
             cache.SetSources(new[] { first, second });
             PumpUntil(cache, () => cache.PassComplete, true, 1000);
             Assert.Equal(1000, store.TotalBytes);
-            Assert.Equal(1, cache.FilesRead);
+            Assert.Equal(2, cache.FilesRead);                // the second file was warmed without a copy
+            Assert.Equal(1, cache.BudgetFallbackWarms);
 
             cache.Pump(true, true, 0, allowCopies: false);
             Assert.True(SpinWait.SpinUntil(() => cache.PassComplete, 3000));

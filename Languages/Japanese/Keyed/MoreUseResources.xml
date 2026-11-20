@@ -56,6 +56,14 @@
   <MUR_PrefetchRefreshInterval>OSキャッシュへの再先読み間隔 {0} 分（0で停止）</MUR_PrefetchRefreshInterval>
   <MUR_PrefetchMaintenanceStatus>OSファイルキャッシュの再先読み完了回数 {0}</MUR_PrefetchMaintenanceStatus>
   <MUR_FileDiscoveryStatus>MODアセット一覧の探索完了 {0} 回 ／ 一覧更新 {1} 回</MUR_FileDiscoveryStatus>
+  <MUR_EnginePackStatus>先読み対象のエンジン用テクスチャキャッシュ・アセットパック {0} 個</MUR_EnginePackStatus>
+  <MUR_ResidentPackStatus>RAM常駐アセットパック {0}/{1} 個 ／ マップ済み {2} MiB ／ 巡回 {3} 回 ／ 上限超過 {4} 個 ／ エラー {5} 件</MUR_ResidentPackStatus>
+  <MUR_ResidentPacks>実験機能：Assets.zip をRAMに常駐させる（ファイル先読みが必要。エンジンと同じ読み取り専用ファイルをマップします。高速化は保証されません）</MUR_ResidentPacks>
+  <MUR_ResidentPackLimit>RAM常駐アセットパックの上限 (MiB)</MUR_ResidentPackLimit>
+  <MUR_LoadTimingStatus>ロード工程の所要時間: {0}</MUR_LoadTimingStatus>
+  <MUR_RecordLoadTiming>ロード工程の所要時間を記録する（ログに出力。変更は次回起動から有効）</MUR_RecordLoadTiming>
+  <MUR_GcStatus>直近10秒のGC: 第0世代 {0} 回 ／ 第1世代 {1} 回 ／ 第2世代 {2} 回 ／ 停止 {3} ms（{4}%） ／ 確保速度 {5} MiB/秒 ／ マネージドヒープ {6} MiB ／ モード {7}</MUR_GcStatus>
+  <MUR_GcPending>GC: 最初の10秒を計測中</MUR_GcPending>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
@@ -94,4 +102,56 @@
   <MUR_MemoryAtTarget>目標到達</MUR_MemoryAtTarget>
   <MUR_MemoryLimitedByFreeMemory>空きRAM待ち</MUR_MemoryLimitedByFreeMemory>
   <MUR_MemoryPressure>メモリ圧迫のため解放中</MUR_MemoryPressure>
+  <MUR_GcSaveBaseline>このGC計測を比較の基準として保存</MUR_GcSaveBaseline>
+  <MUR_GcComparison>GCの基準との差（{0}、{1}/{2}）　{3} 回/分、停止 {4} ms/分、ヒープ {5} MiB、確保 {6} MiB/s、GCコミット済み {7} MiB</MUR_GcComparison>
+  <MUR_GcComparisonPending>基準と同じフェーズ・速度（{0}）でGC計測を待機中。旧プレイ基準は取り直してください</MUR_GcComparisonPending>
+  <MUR_CachePatchedXml>対応するXMLパッチの適用結果をキャッシュ（実験機能・要再起動）</MUR_CachePatchedXml>
+  <MUR_PatchedXmlOff>XMLパッチキャッシュは次回起動時に有効になります</MUR_PatchedXmlOff>
+  <MUR_PatchedXmlWaiting>起動時のXMLパッチ工程を待機中</MUR_PatchedXmlWaiting>
+  <MUR_PatchedXmlBypass>XMLキャッシュの適用条件を満たさず、通常のパッチ処理を使用</MUR_PatchedXmlBypass>
+  <MUR_PatchedXmlHit>対応するXMLパッチの結果をキャッシュから復元</MUR_PatchedXmlHit>
+  <MUR_PatchedXmlMiss>一致するXMLキャッシュがなく、通常のパッチ処理を使用</MUR_PatchedXmlMiss>
+  <MUR_UncompressedTextureCache>新規テクスチャキャッシュを無圧縮で書き込む（実験機能）</MUR_UncompressedTextureCache>
+  <MUR_TextureCodecActive>テクスチャキャッシュの新規書き込みは無圧縮</MUR_TextureCodecActive>
+  <MUR_TextureCodecInactive>無圧縮キャッシュの書き込みは停止中</MUR_TextureCodecInactive>
+  <MUR_CpuJitPrewarm>ゲーム本体とMODのメソッドをJIT先行コンパイル（実験機能）</MUR_CpuJitPrewarm>
+  <MUR_JitStatus>JIT先行コンパイル　準備 {0} 件、失敗 {1} 件、対象外 {2} 件、処理 {3} ms（{4}）</MUR_JitStatus>
+  <MUR_JitComplete>完了</MUR_JitComplete>
+  <MUR_JitPending>処理中または許可フェーズ待ち</MUR_JitPending>
+  <MUR_GpuResidencyBoost>エンジンの退避機能を使い、予算75%までテクスチャを先読み（実験機能）</MUR_GpuResidencyBoost>
+  <MUR_GpuPrepareGraphics>タイトル画面・ポーズ中に対応グラフィックとマテリアルを事前準備（実験機能）</MUR_GpuPrepareGraphics>
+  <MUR_GraphicWarmStatus>グラフィック準備　準備 {0} 件、失敗 {1} 件</MUR_GraphicWarmStatus>
+  <MUR_GpuAnisotropicMeshes>対応する繰り返しメッシュテクスチャに最大4倍の異方性フィルタ（実験機能）</MUR_GpuAnisotropicMeshes>
+  <MUR_AnisoConflict>グラフィック設定MODが有効なため異方性フィルタの変更を停止</MUR_AnisoConflict>
+  <MUR_AnisoStatus>メッシュ用のフィルタ品質を上げたテクスチャ　{0} 件</MUR_AnisoStatus>
+  <MUR_RamGcLowLatency>許可されたRAMフェーズでGCの低遅延モードを使う</MUR_RamGcLowLatency>
+  <MUR_AssetBoost>実アセット積極活用プリセットを適用</MUR_AssetBoost>
+  <MUR_StartupPackExport>起動前の先読み用に使用中のアセットパック一覧を出力</MUR_StartupPackExport>
+  <MUR_AdaptiveWorkers>プレイ中の計測に応じてバックグラウンドワーカー数を調整</MUR_AdaptiveWorkers>
+  <MUR_AdaptiveWorkerStatus>フレーム間隔 P95 {0} ms・ワーカー上限 {1}%</MUR_AdaptiveWorkerStatus>
+  <MUR_GpuDemandPriority>ゲームが再読み込みしたテクスチャを優先</MUR_GpuDemandPriority>
+  <MUR_GpuDemandStatus>アトラス元画像の除外 {0} 件・需要順アップロード {1} 件</MUR_GpuDemandStatus>
+  <MUR_JitWowgag>JIT先行コンパイルはWOWGAG側を優先中</MUR_JitWowgag>
+  <MUR_ExternalNoReduce>本MODのワーカー上限 {0}・現在の稼働数 {1}。他MODの並列処理やエンジン共有ジョブプールの混雑では、この上限を下げません</MUR_ExternalNoReduce>
+  <MUR_ExternalWowgag>WOWGAGの並列機能　{0}・parWorkers の設定値 {1}・現在の稼働ワーカー {2}。数の変更はWOWGAGの設定画面で行ってください</MUR_ExternalWowgag>
+  <MUR_ExternalOverclock>Overclockの並列Pawn Tick　{0}・parallelThreads の設定値 {1}・現在の稼働ワーカー {2}（設定は再起動後に反映）。数の変更はOverclockの設定画面で行ってください</MUR_ExternalOverclock>
+  <MUR_ExternalAxen>Axenの経路グリッドパッチ　{0}・経路グリッド発行メソッドのHarmonyオーナー {1}。Axenはエンジンの共有ジョブプールで動作し、専用のワーカー設定はありません</MUR_ExternalAxen>
+  <MUR_ExternalSharedPool>エンジン共有ジョブプール　ワーカー {0}・現時点で処理待ちあり {1}（診断用の表示のみ）</MUR_ExternalSharedPool>
+  <MUR_ExternalStateAbsent>未導入</MUR_ExternalStateAbsent>
+  <MUR_ExternalStateInactive>無効または停止中</MUR_ExternalStateInactive>
+  <MUR_ExternalStateActive>稼働中</MUR_ExternalStateActive>
+  <MUR_ExternalStateUnknown>判定不能</MUR_ExternalStateUnknown>
+  <MUR_ExternalAuto>0（自動）</MUR_ExternalAuto>
+  <MUR_ExternalUnread>読み取り不可</MUR_ExternalUnread>
+  <MUR_ExternalNone>なし</MUR_ExternalNone>
+  <MUR_ExternalYes>はい</MUR_ExternalYes>
+  <MUR_ExternalNo>いいえ</MUR_ExternalNo>
+  <MUR_YieldedUnits>同じ処理を担当する他MODに譲っている作業　{0}。それ以外の作業は継続します</MUR_YieldedUnits>
+  <MUR_XmlYielded>WOWGAGのXML再利用が {0} のため、LoadModXML と CombineIntoUnifiedXML の計測を省略し、XMLパッチキャッシュもWOWGAGに譲っています</MUR_XmlYielded>
+  <MUR_PrefetchFallbackStatus>コピー予算待ちの間にOSキャッシュへ先読みしたファイル {0} 件・先読み対象のコンパイル済みシェーダー {1} 件</MUR_PrefetchFallbackStatus>
+  <MUR_GpuPrepareSections>ポーズ中に、画面外で変更された現在マップの区画メッシュを先に更新（実験機能）</MUR_GpuPrepareSections>
+  <MUR_SectionUnavailable>区画の先行更新は、このゲームビルドで使用できないか、エラーのため停止しました</MUR_SectionUnavailable>
+  <MUR_SectionStatus>ポーズ中に先行更新した画面外の区画　{0} 件</MUR_SectionStatus>
+  <MUR_SectionYielded>区画の更新は、本体の区画更新を置き換えている {0} に譲っています</MUR_SectionYielded>
+  <MUR_DemandHistoryStatus>テクスチャ需要履歴　前回セッションからの候補 {0} 件・アップロード {1} 件・保存 {2} 回</MUR_DemandHistoryStatus>
 </LanguageData>
