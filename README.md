@@ -99,7 +99,7 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 | グラフィック資源の事前構築 | タイトル画面とポーズ中に、標準の単一・多方向グラフィック、添付グラフィック、一部の建物用マテリアルを既存のゲームキャッシュへ準備します。GPU先読みと1フレームの処理時間を共有し、構築後も予算を再確認します。単一の処理は予算時間を超える場合があります。 |
 | メッシュの異方性フィルタ | 初期値1×または2×の繰り返し・ミップ付きテクスチャに最大4×を適用します。対応Vulkanデバイスでのみ稼働し、Graphics Settings+やIsoRim系の設定を検出すると停止します。OFFで変更した値を復元し、描画が使用するサンプラーを更新します。 |
 
-GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い、通常起動またはWorkstationで基準を取った後にServerを試してください。ゲーム内の表示で適用された種類を確認できます。
+GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い、Workstation（`-Profile Workstation`）で基準を取った後にServerを試してください。下の「Server GC でゲームを起動する」が ON のとき、通常起動は Server です。ゲーム内の表示で適用された種類を確認できます。
 
 ```powershell
 .\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Server -ServerHeapCount 8
@@ -107,7 +107,19 @@ GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い
 
 `-ServerHeapCount` を省略するとランタイム既定のヒープ数を使用します。
 
-2026-11-20 の実機計測（Windows 11、16 論理 CPU、218 MOD、1.7.5014 rev1195、速度 3）では、`DOTNET_gcServer=1` だけを付けて起動すると Server GC になり、GC の停止は 1.15% から 0.14%、最悪の 10 秒は 179 ms から 73 ms、ロード中の停止は 4.1 s から 1.3 s に減りました。GC のコミット量の増加は約 115 MiB でした（1 回ずつの比較。詳細は [PC での短い計測](docs/testing/pc-quick-measurement-ja.md)）。PowerShell を使わずに起動するときは、`tools/Start-RimWorld-ServerGc.cmd` をダブルクリックします（MOD が `RimWorld\Mods` にあるとき。ほかの場所なら `RimWorld.exe` をこのファイルにドラッグします。Windows ではまだ試していません）。[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
+2026-11-20 の実機計測（Windows 11、16 論理 CPU、218 MOD、1.7.5014 rev1195、速度 3）では、`DOTNET_gcServer=1` だけを付けて起動すると Server GC になり、GC の停止は 1.15% から 0.14%、最悪の 10 秒は 179 ms から 73 ms、ロード中の停止は 4.1 s から 1.3 s に減りました。GC のコミット量の増加は約 115 MiB でした（1 回ずつの比較。詳細は [PC での短い計測](docs/testing/pc-quick-measurement-ja.md)）。
+
+この結果から、MOD 設定の RAM の欄に **Server GC でゲームを起動する**（初期 ON）を加えました。`RimWorld.exe` と同じフォルダーにあるゲームの起動設定ファイル `RimWorld.runtimeconfig.json` の `configProperties` に、`"System.GC.Server": true` と目印の `"MoreUseResources.AddedServerGc": true` の 2 行を書きます。GC の種類は起動時に決まるので、Steam からの普通の起動でも、書いた次の起動から Server GC になります（この版を入れた最初の起動は、まだ元の GC です）。
+
+- ほかの行は元のとおりに書き戻します。新しい内容は一時ファイルに書いてから置き換え、書いたあと読み直して確かめます。ファイルが想定と違う形なら変えません。
+- ゲームの更新でファイルが元に戻っても、次の起動で書き直します。
+- OFF にすると、この MOD が書いた 2 行だけを消します。目印のない `System.GC.Server` は、ゲームや利用者が書いたものとして変えません。
+- 環境変数 `DOTNET_gcServer` はファイルより優先されます。
+- MOD を外すときは、先にこの設定を OFF にしてください。OFF にせずに外したときは、Steam の「ゲームファイルの整合性を確認」で元のファイルに戻ります。
+- 適用された種類と、そう決まった理由（環境変数、起動設定ファイル、既定）は、状態欄の「GC の種類」の行に出ます。
+- ファイルを書けないときは、`tools/Start-RimWorld-ServerGc.cmd` をダブルクリックすると、その起動だけ Server GC になります（MOD が `RimWorld\Mods` にあるとき。ほかの場所なら `RimWorld.exe` をこのファイルにドラッグします。Windows ではまだ試していません）。
+
+[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
 
 ## 実アセット積極活用プリセット
 

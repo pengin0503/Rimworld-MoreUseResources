@@ -68,6 +68,22 @@
   <MUR_StatusCopied>More Use Resources: 状態をクリップボードにコピーし、Logs フォルダーと同じ場所の MoreUseResources-Status.txt に追加しました。</MUR_StatusCopied>
   <MUR_PlayStats>この起動中のプレイ（ポーズと別ウィンドウの間を除く、ゲーム速度と倍率ごとの平均）: {0}</MUR_PlayStats>
   <MUR_GcPending>GC: 最初の10秒を計測中</MUR_GcPending>
+  <MUR_ServerGcStatus>GC の種類：この起動は {0}（{1}） ／ 起動設定ファイル：{2}</MUR_ServerGcStatus>
+  <MUR_GcSourceEnvironment>環境変数 {0} による</MUR_GcSourceEnvironment>
+  <MUR_GcSourceFile>起動設定ファイルの {0} による</MUR_GcSourceFile>
+  <MUR_GcSourceMismatch>{0} がありますが、この起動の GC と合いません（起動後に設定された可能性があります）</MUR_GcSourceMismatch>
+  <MUR_GcSourceDefault>ゲームの既定</MUR_GcSourceDefault>
+  <MUR_GcSourceUnknown>指定は見つかりません</MUR_GcSourceUnknown>
+  <MUR_ServerGcFileNotChecked>まだ確認していません</MUR_ServerGcFileNotChecked>
+  <MUR_ServerGcFileAdded>この MOD が Server GC を書き込みました。次の起動から Server GC です</MUR_ServerGcFileAdded>
+  <MUR_ServerGcFileKept>Server GC を指定しています（この MOD が書いたもの）</MUR_ServerGcFileKept>
+  <MUR_ServerGcFileSetByOthers>もともと Server GC を指定しています（そのままにします）</MUR_ServerGcFileSetByOthers>
+  <MUR_ServerGcFileLeftAsIs>System.GC.Server が、この MOD の書いたものではない別の値です（そのままにします）</MUR_ServerGcFileLeftAsIs>
+  <MUR_ServerGcFileRemoved>この MOD が書いた Server GC の指定を消しました。次の起動からゲームの既定に戻ります</MUR_ServerGcFileRemoved>
+  <MUR_ServerGcFileNotSet>この MOD による Server GC の指定はありません</MUR_ServerGcFileNotSet>
+  <MUR_ServerGcFileMissing>見つからないので書いていません。tools/Start-RimWorld-ServerGc.cmd で起動すると、その回だけ Server GC になります</MUR_ServerGcFileMissing>
+  <MUR_ServerGcFileUnreadable>想定と違う形なので変えていません（{0}）</MUR_ServerGcFileUnreadable>
+  <MUR_ServerGcFileWriteFailed>書き込めませんでした（{0}）。tools/Start-RimWorld-ServerGc.cmd で起動すると、その回だけ Server GC になります</MUR_ServerGcFileWriteFailed>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>
   <MUR_CacheLimit>ファイルコピー上限 {0} MiB</MUR_CacheLimit>
@@ -128,6 +144,7 @@
   <MUR_GpuAnisotropicMeshes>対応する繰り返しメッシュテクスチャに最大4倍の異方性フィルタ（実験機能）</MUR_GpuAnisotropicMeshes>
   <MUR_AnisoConflict>グラフィック設定MODが有効なため異方性フィルタの変更を停止</MUR_AnisoConflict>
   <MUR_AnisoStatus>メッシュ用のフィルタ品質を上げたテクスチャ　{0} 件</MUR_AnisoStatus>
+  <MUR_ServerGc>Server GC でゲームを起動する（RimWorld.runtimeconfig.json に System.GC.Server を書きます。次の起動から有効）</MUR_ServerGc>
   <MUR_RamGcLowLatency>許可されたRAMフェーズでGCの低遅延モードを使う</MUR_RamGcLowLatency>
   <MUR_AssetBoost>実アセット積極活用プリセットを適用</MUR_AssetBoost>
   <MUR_StartupPackExport>起動前の先読み用に使用中のアセットパック一覧を出力</MUR_StartupPackExport>

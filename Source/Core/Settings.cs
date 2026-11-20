@@ -103,6 +103,11 @@ namespace MoreUseResources.Core
         public bool RamReserve = false;
         public int RamReserveMiB = 4096;
         public bool RamGcLowLatency = false;
+        /// <summary>
+        /// Ask for the server GC in the game's RimWorld.runtimeconfig.json; applies from the next launch. On by default:
+        /// measured on 2026-11-20 it cut GC stops in play from 1.15% to 0.14% of the time for about 115 MiB more memory.
+        /// </summary>
+        public bool ServerGc = true;
 
         // ---- GPU ----
         public bool GpuEnabled = true;

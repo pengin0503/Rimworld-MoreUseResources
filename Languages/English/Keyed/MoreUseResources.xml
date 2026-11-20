@@ -68,6 +68,22 @@
   <MUR_StatusCopied>More Use Resources: status copied to the clipboard and added to MoreUseResources-Status.txt next to the Logs folder.</MUR_StatusCopied>
   <MUR_PlayStats>Unpaused play this session (average per game speed and tick-rate multiplier; time in other windows left out): {0}</MUR_PlayStats>
   <MUR_GcPending>GC: measuring the first 10 seconds</MUR_GcPending>
+  <MUR_ServerGcStatus>GC kind: {0} in this launch ({1}) · start-up file: {2}</MUR_ServerGcStatus>
+  <MUR_GcSourceEnvironment>set by the environment variable {0}</MUR_GcSourceEnvironment>
+  <MUR_GcSourceFile>set by {0} in the start-up file</MUR_GcSourceFile>
+  <MUR_GcSourceMismatch>{0} is set but does not match this launch; it may have been set after the game started</MUR_GcSourceMismatch>
+  <MUR_GcSourceDefault>the game's default</MUR_GcSourceDefault>
+  <MUR_GcSourceUnknown>no setting found that asks for it</MUR_GcSourceUnknown>
+  <MUR_ServerGcFileNotChecked>not checked yet</MUR_ServerGcFileNotChecked>
+  <MUR_ServerGcFileAdded>this mod wrote Server GC into it; the server GC starts with the next launch</MUR_ServerGcFileAdded>
+  <MUR_ServerGcFileKept>asks for Server GC (written by this mod)</MUR_ServerGcFileKept>
+  <MUR_ServerGcFileSetByOthers>asks for Server GC by itself; left as it is</MUR_ServerGcFileSetByOthers>
+  <MUR_ServerGcFileLeftAsIs>sets System.GC.Server to another value that this mod did not write; left as it is</MUR_ServerGcFileLeftAsIs>
+  <MUR_ServerGcFileRemoved>this mod removed its Server GC entry; the next launch uses the game's default</MUR_ServerGcFileRemoved>
+  <MUR_ServerGcFileNotSet>no Server GC entry from this mod</MUR_ServerGcFileNotSet>
+  <MUR_ServerGcFileMissing>not found, so nothing was written. Starting with tools/Start-RimWorld-ServerGc.cmd gives that one launch the server GC</MUR_ServerGcFileMissing>
+  <MUR_ServerGcFileUnreadable>not in the expected form, so it was left as it is ({0})</MUR_ServerGcFileUnreadable>
+  <MUR_ServerGcFileWriteFailed>could not be written ({0}). Starting with tools/Start-RimWorld-ServerGc.cmd gives that one launch the server GC</MUR_ServerGcFileWriteFailed>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>
   <MUR_CacheLimit>File copy limit {0} MiB</MUR_CacheLimit>
@@ -128,6 +144,7 @@
   <MUR_GpuAnisotropicMeshes>Use up to 4× anisotropy on eligible repeating mesh textures (experimental)</MUR_GpuAnisotropicMeshes>
   <MUR_AnisoConflict>Anisotropy inactive due to an installed graphics mod</MUR_AnisoConflict>
   <MUR_AnisoStatus>Textures with enhanced mesh filtering: {0}</MUR_AnisoStatus>
+  <MUR_ServerGc>Start the game with the server GC (writes System.GC.Server into RimWorld.runtimeconfig.json; applies from the next launch)</MUR_ServerGc>
   <MUR_RamGcLowLatency>Keep the existing GC low-latency mode enabled in eligible RAM phases</MUR_RamGcLowLatency>
   <MUR_AssetBoost>Apply the real asset boost preset</MUR_AssetBoost>
   <MUR_StartupPackExport>Export the active asset packs for optional launch-time prewarming</MUR_StartupPackExport>

@@ -24,6 +24,7 @@ public sealed class MoreUseResourcesMod : Mod
         settings = GetSettings<ResourceModSettings>();
         runtime = new ResourceRuntime(settings.Value);
         runtime.Install();
+        ServerGcSetting.Apply(settings.Value.ServerGc);
     }
 
     public override string SettingsCategory() => "MUR_Name".Translate();
@@ -31,6 +32,7 @@ public sealed class MoreUseResourcesMod : Mod
     public override void WriteSettings()
     {
         runtime.SettingsChanged(settings.Value);
+        ServerGcSetting.Apply(settings.Value.ServerGc);
         base.WriteSettings();
     }
 
@@ -64,6 +66,7 @@ public sealed class MoreUseResourcesMod : Mod
         {
             settings.Value.Clamp();
             runtime.SettingsChanged(settings.Value);
+            ServerGcSetting.Apply(settings.Value.ServerGc);
         }
     }
 
@@ -97,6 +100,10 @@ public sealed class MoreUseResourcesMod : Mod
                 InMiB(gc.HeapBytes), (gc.ServerGc ? "Server" : "Workstation") + "/" + gc.Latency));
         }
         else Line(list, "MUR_GcPending".Translate());
+        string sourceKey = ServerGcSetting.LaunchSourceKey(out string source);
+        ServerGcFileResult file = ServerGcSetting.Last;
+        Line(list, "MUR_ServerGcStatus".Translate(ServerGcSetting.LaunchGc, sourceKey.Translate(source).ToString(),
+            ("MUR_ServerGcFile" + file.State).Translate(file.Error ?? "").ToString()));
         Line(list, "MUR_PlayStats".Translate(runtime.Play.Report()));
         if (runtime.GcCurrent is { } current)
         {
@@ -444,6 +451,7 @@ public sealed class MoreUseResourcesMod : Mod
         Toggle(list, "MUR_PrefetchEnabled", ref s.RamFileCache);
         Slider(list, "MUR_PrefetchRefreshInterval", ref s.RamPrefetchRefreshMinutes, 0, 120, 5);
         Toggle(list, "MUR_RamEnabled", ref s.RamEnabled);
+        Toggle(list, "MUR_ServerGc", ref s.ServerGc);
         Toggle(list, "MUR_RamGcLowLatency", ref s.RamGcLowLatency);
         Toggle(list, "MUR_HoldCopies", ref s.RamHoldCopies);
         Slider(list, "MUR_CacheLimit", ref s.RamFileCacheMiB, 64, 8192, 64);
