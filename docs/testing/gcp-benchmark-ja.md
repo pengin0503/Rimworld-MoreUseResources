@@ -105,6 +105,14 @@ Ctrl+C（SIGINT）か SIGTERM で、実行中の試行を終えてから結果�
 
 終了コード: 0 正常、1 エラー、2 引数の誤り、3 中断（結果は保存済み）、4 安全装置による停止、5 失敗した試行あり。
 
+ブラウザ SSH の接続が切れても、測定は止まりません。外側の `timeout` が自分のプロセスグループで動くため、端末の切断（SIGHUP）が届かないからです。つなぎ直したら、新しく始める前に次で確かめてください。番号が出たら、まだ動いています。
+
+```bash
+pgrep -f MoreUseResources.Benchmarks.dll || echo "すべて終わっています"
+```
+
+動いている測定と並べて別の測定を始めると、CPU を取り合い、両方の数値が正しく出ません。止めるときは `pkill -INT -x dotnet` を 1 回だけ送ります。`pkill -f` で `timeout` にも送ると、`timeout` が転送する分と合わせて 2 回届き、結果を書かずに終了します。
+
 ## 5. 結果の読み方
 
 結果は `~/mur-bench-results/<UTC日時>-<コミット7桁>-<モード>[-ラベル]/` に入ります。
@@ -140,11 +148,24 @@ tools/benchmark/run-gcp-benchmark.sh compare ~/mur-bench-results/<A> ~/mur-bench
 
 `comparison.md` は、両方 3 試行以上あり、中央値の差が 3% 以上で、全試行の範囲が重ならないものだけを「改善」「悪化」とし、それ以外は「差なし」「試行不足」とします。入力データの構成指紋が違う場合は比較しません。マシン・カーネル・.NET・GC 設定が違う場合は警告を出します。
 
-結果を手元へ持ち帰る例:
+### 結果を VM から取り出す
+
+いちばん確実なのは、VM から R2 のバケットに置く方法です。どの端末からでも受け取れます。R2 の API トークンには書き込みの権限（Object Read & Write）が要ります。読み取り専用のトークンでは、権限がないと表示して止まります。
 
 ```bash
-gcloud compute scp --recurse mur-bench:~/mur-bench-results ./ --zone=asia-northeast1-b
+cd ~/Rimworld-MoreUseResources && git pull --ff-only
+python3 -I tools/benchmark/upload-results-r2.py
 ```
+
+- 環境変数は「3. 入力データ」と同じものを使います。SSH をつなぎ直すと消えているので、もう一度 `export` してください。
+- `~/mur-bench-results` の全実行を 1 つの .tar.gz にまとめ、`bench-results/<ホスト名>-<UTC日時>.tar.gz` として置きます。生成データ（`generated-data`）と、強制終了した実行の作業用コピー（`scratch`）は入れません。
+- 測定が動いている間は、結果が途中なので止まります。途中のまま置くときは `--even-if-running` を付けます。
+- 受け取るには、Cloudflare のダッシュボードで R2、バケット、`bench-results/`、ファイルの順に開いてダウンロードします。
+
+ほかの方法:
+
+- PC のブラウザ SSH: `tar -czf ~/mur-bench-results.tar.gz -C ~ --exclude=mur-bench-results/generated-data mur-bench-results` でまとめてから、右上の「ファイルをダウンロード」に `/home/<ユーザー名>/mur-bench-results.tar.gz` を入れます。iPad のブラウザでは「0 個の項目を転送しました」と出て保存できなかった例があります（2026-11-20）。
+- gcloud CLI のある PC から: `gcloud compute scp --recurse mur-bench:~/mur-bench-results ./ --zone=asia-northeast1-b`
 
 ## 6. このベンチマークで再現できないこと
 
