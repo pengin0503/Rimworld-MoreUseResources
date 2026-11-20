@@ -39,7 +39,7 @@ jobs:
           if-no-files-found: error
 
   # Short benchmark on generated data only. Long, high-load and real-data runs are started by hand
-  # on a VM (docs/testing/gcp-benchmark-ja.md); none of them run here.
+  # (tools/benchmark/run-benchmark.sh); none of them run here.
   benchmark-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20

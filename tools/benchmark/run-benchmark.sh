@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Builds and runs the MoreUseResources Linux benchmark on a VM (no game, no GPU).
+# Builds and runs the MoreUseResources Linux benchmark (no game, no GPU).
 #
-#   tools/benchmark/run-gcp-benchmark.sh smoke                     ~5-15 min, generated data
-#   tools/benchmark/run-gcp-benchmark.sh standard --data ~/mur-data
-#   tools/benchmark/run-gcp-benchmark.sh stress --data ~/mur-data --cpus 8
-#   tools/benchmark/run-gcp-benchmark.sh soak --hours 4 --data ~/mur-data
-#   tools/benchmark/run-gcp-benchmark.sh standard --gc-variants default,server,conserve
-#   tools/benchmark/run-gcp-benchmark.sh analyze RESULT_DIR
-#   tools/benchmark/run-gcp-benchmark.sh compare BASELINE_DIR OTHER_DIR
-#   tools/benchmark/run-gcp-benchmark.sh test                      unit tests only
+#   tools/benchmark/run-benchmark.sh smoke                     ~5-15 min, generated data
+#   tools/benchmark/run-benchmark.sh standard --data ~/mur-data
+#   tools/benchmark/run-benchmark.sh stress --data ~/mur-data --cpus 8
+#   tools/benchmark/run-benchmark.sh soak --hours 4 --data ~/mur-data
+#   tools/benchmark/run-benchmark.sh standard --gc-variants default,server,conserve
+#   tools/benchmark/run-benchmark.sh analyze RESULT_DIR
+#   tools/benchmark/run-benchmark.sh compare BASELINE_DIR OTHER_DIR
+#   tools/benchmark/run-benchmark.sh test                      unit tests only
 #
 # Options (all optional):
 #   --data DIR            real data from fetch-r2-dataset.py (default: generated data). When DIR
@@ -104,7 +104,7 @@ if [ -n "$data" ] && [ "$command" != "analyze" ] && [ "$command" != "compare" ] 
   fi
 fi
 
-dotnet_bin=$(command -v dotnet) || { echo "dotnet not found: run tools/benchmark/setup-ubuntu.sh first" >&2; exit 1; }
+dotnet_bin=$(command -v dotnet) || { echo "dotnet not found: install the .NET 10 SDK (Ubuntu: sudo apt-get install dotnet-sdk-10.0)" >&2; exit 1; }
 mkdir -p "$out"
 out=$(realpath "$out")
 

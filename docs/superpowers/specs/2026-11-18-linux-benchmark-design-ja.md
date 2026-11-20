@@ -1,10 +1,10 @@
-# Linux ベンチマーク（Google Cloud VM 向け）の設計
+# Linux ベンチマーク（ゲームなし）の設計
 
-対象: PR #5（ブランチ `claude/project-thread-8c4csj`）。実行手順は [GCP ベンチマーク実行手順](../../testing/gcp-benchmark-ja.md) を参照。
+対象: PR #5（ブランチ `claude/project-thread-8c4csj`）。実行は `tools/benchmark/run-benchmark.sh`（開発用のクラウド環境で行う。2026-11-20 に VM での実行はやめた）。
 
 ## 目的と方針
 
-MOD が CPU・RAM・I/O をどれだけ効率よく使うかを、ゲームのない Linux VM で繰り返し測れるようにする。
+MOD が CPU・RAM・I/O をどれだけ効率よく使うかを、ゲームのない Linux 環境で繰り返し測れるようにする。
 
 - 合成負荷ではなく、配布 DLL と同じ `Source/Core` のコード（`AssetAudit`、`FileCache`、`MappedPackResidency`、`WorkerPool`、`MemoryGovernor`、`ResourceController` など）を直接呼ぶ。ベンチマーク側は呼び出し方（コントローラと同じ Pump 間隔・同時実行上限・設定値）を再現し、時間と資源を測るだけにする。
 - 本番コードは変更しない。変更は `MoreUseResources.Core.dll` への `InternalsVisibleTo`（テスト用 Core DLL にだけ入る）のみで、配布 DLL はバイト単位で同じことを CI と手元で確認した。
@@ -22,7 +22,7 @@ MOD が CPU・RAM・I/O をどれだけ効率よく使うかを、ゲームの�
 | `Benchmarks/Data/` | 入力データの読み込み（MOD の探索と同じ規則）と生成データ |
 | `Benchmarks/Analysis/` | 統計、条件ごとの集計、分析、2 回の比較、リーク判定 |
 | `Benchmarks/Tests/` | 単体テストと短い実行の通しテスト（70 件） |
-| `tools/benchmark/` | VM のセットアップ、実行、R2 からの実データ取得 |
+| `tools/benchmark/` | 実行と R2 からの実データ取得 |
 
 ## 1 試行の流れ
 
@@ -84,7 +84,7 @@ cadence 条件は、完走まで待つと長すぎるため `--rate-window-s` �
 
 ## CI
 
-GitHub Actions は既存のジョブ（テスト、ビルド、配布 DLL の一致、パッケージ）に加え、ベンチマークの単体テストと、生成データ 16 MiB・ワーカー 1,2・試行 1 の短いスモークだけを実行し、結果を成果物として保存する。長時間・高負荷・実データの実行は VM で手動で行う。
+GitHub Actions は既存のジョブ（テスト、ビルド、配布 DLL の一致、パッケージ）に加え、ベンチマークの単体テストと、生成データ 16 MiB・ワーカー 1,2・試行 1 の短いスモークだけを実行し、結果を成果物として保存する。長時間・高負荷・実データの実行は開発用のクラウド環境で手動で行う。
 
 ## 手元の短い実行で分かったこと
 
@@ -105,7 +105,7 @@ GitHub Actions は既存のジョブ（テスト、ビルド、配布 DLL の一
 
 ## 未検証事項
 
-- 8 vCPU / 32 GiB の GCE VM での standard・stress・soak の実行と、その所要時間。
+- 8 vCPU 以上での standard・stress・soak の実行と、その所要時間。
 - ゲームの実際の読み込み順・タイミングとの競合、Windows の I/O とヒープ、Lowest 優先度の効果、他MODの実際の並列処理。
 - 1.7 用フォルダを持たない旧バージョン向け MOD をゲームがどのフォルダから読むか（ここではルートと Common のみ）。
 - 本物のメモリ枯渇とディスクの読み取りエラー。
