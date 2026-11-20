@@ -81,7 +81,7 @@
   <MUR_GpuRefreshInterval>テクスチャ再先読み間隔 {0} 秒（0で再走査OFF）</MUR_GpuRefreshInterval>
   <MUR_GpuMaxTextureDimension>GPU先読み対象の最大幅・高さ {0} px（大きいほど高負荷）</MUR_GpuMaxTextureDimension>
   <MUR_GpuHint>テクスチャ先読みは、Vulkanの予算を取得できる単体GPUで、安定したフレーム中に実行します。常駐したテクスチャの管理はWaylithが行います。</MUR_GpuHint>
-  <MUR_GpuUnsupported>テクスチャ先読みの対応版はWindows 1.7.5011 rev24 と 1.7.5014 rev1195 です。</MUR_GpuUnsupported>
+  <MUR_GpuUnsupported>テクスチャ先読みは RimWorld 1.7 で使えます。</MUR_GpuUnsupported>
   <MUR_GpuDisabled>無効</MUR_GpuDisabled>
   <MUR_GpuWaiting>安定したフレーム待ち</MUR_GpuWaiting>
   <MUR_GpuNoBudget>対応するドライバー予算を取得できません</MUR_GpuNoBudget>

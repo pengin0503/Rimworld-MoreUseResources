@@ -4,6 +4,7 @@ using System.IO;
 using System.Diagnostics;
 using System.Runtime;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
@@ -566,9 +567,18 @@ internal sealed class ResourceRuntime
         Volatile.Write(ref manifestInFlight, 0);
     }
 
+    // A game build whose engine lacks one of these members fails when the reading method is compiled, at its call.
+    // The reads are separate methods so that only the pack list is lost then, not the whole runtime.
     private static string[]? CaptureMountedPacks()
     {
         if (!TexturePrewarm.SupportedBuild) return null;
+        try { return ReadMountedPacks(); }
+        catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { return null; }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string[] ReadMountedPacks()
+    {
         var mounts = ContentPack.Mounts;
         var paths = new string[mounts.Count];
         for (int i = 0; i < mounts.Count; i++) paths[i] = mounts[i].Pack.Path;
@@ -578,16 +588,16 @@ internal sealed class ResourceRuntime
     private static (string? Root, string? InstallId) CaptureActiveTextureCache()
     {
         if (!TexturePrewarm.SupportedBuild) return default;
-        try
-        {
-            var root = typeof(GpuTextureService).GetProperty("TextureCacheRoot",
-                BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as string;
-            return string.IsNullOrWhiteSpace(root) ? default : (root, CacheFileWriter.InstallId);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            return default;
-        }
+        try { return ReadActiveTextureCache(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return default; }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (string? Root, string? InstallId) ReadActiveTextureCache()
+    {
+        var root = typeof(GpuTextureService).GetProperty("TextureCacheRoot",
+            BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as string;
+        return string.IsNullOrWhiteSpace(root) ? default : (root, CacheFileWriter.InstallId);
     }
 
     private void UpdatePerformance(long now, TickManager? ticks, double frameIntervalMs, GamePhase phase, bool focused)
@@ -764,7 +774,9 @@ internal sealed class ResourceRuntime
                 gpu.InvalidateScan();
             }
             long frameStart = Stopwatch.GetTimestamp();
-            gpu.Update(phase.Phase, activation, settings, controller.FrameThrottled, ready);
+            // An engine member this build lacks stops texture prewarming only, not the rest of the mod.
+            try { gpu.Update(phase.Phase, activation, settings, controller.FrameThrottled, ready); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { gpu.Suspend(ex); }
             UpdateExperiments(loaded, ready, phase.Phase, activation, frameStart);
         }
         catch (Exception ex)

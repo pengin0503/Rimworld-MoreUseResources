@@ -194,14 +194,12 @@ namespace MoreUseResources.Tests
             Assert.True(ProcessCounters.PrivateBytes() > 0);
 
         [Theory]
-        [InlineData(1, 7, 5011, 24, true)]
-        [InlineData(1, 7, 5014, 1195, true)]
-        [InlineData(1, 7, 5013, 1195, false)]
-        [InlineData(1, 7, 5014, 1196, false)]
-        [InlineData(1, 6, 5011, 24, false)]
-        [InlineData(2, 7, 5014, 1195, false)]
-        public void Only_checked_builds_run_the_engine_facing_code(int major, int minor, int build, int revision, bool verified) =>
-            Assert.Equal(verified, VerifiedBuilds.Contains(major, minor, build, revision));
+        [InlineData(1, 7, true)]
+        [InlineData(1, 6, false)]
+        [InlineData(1, 8, false)]
+        [InlineData(2, 7, false)]
+        public void Every_1_7_build_runs_the_engine_facing_code(int major, int minor, bool supported) =>
+            Assert.Equal(supported, SupportedGame.Contains(major, minor));
 
         [Theory]
         [InlineData(0, 100, 64, 0)]

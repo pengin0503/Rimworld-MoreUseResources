@@ -241,9 +241,16 @@ public sealed class MoreUseResourcesMod : Mod
             .Append(" · mod build ").Append(typeof(MoreUseResourcesMod).Assembly.ManifestModule.ModuleVersionId.ToString("N")[..8])
             .Append(" · ").Append(LoadedModManager.RunningModsListForReading.Count).Append(" mods · ")
             .Append(Environment.ProcessorCount).Append(" logical CPUs · ").Append(RuntimeInformation.OSDescription).AppendLine();
-        if (TexturePrewarm.SupportedBuild && TexturePrewarm.TryReadTextureHeap(out VramInfo vram))
-            text.Append("VRAM texture heap now: ").Append(InMiB(vram.UsageBytes)).Append(" MiB used / ")
-                .Append(InMiB(vram.BudgetBytes)).AppendLine(" MiB driver budget");
+        if (TexturePrewarm.SupportedBuild)
+        {
+            try
+            {
+                if (TexturePrewarm.TryReadTextureHeap(out VramInfo vram))
+                    text.Append("VRAM texture heap now: ").Append(InMiB(vram.UsageBytes)).Append(" MiB used / ")
+                        .Append(InMiB(vram.BudgetBytes)).AppendLine(" MiB driver budget");
+            }
+            catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
+        }
         text.Append("Screen ").Append(Screen.width).Append('x').Append(Screen.height).Append(' ').Append(Screen.fullScreenMode)
             .Append(" · run in background ").Append(Prefs.RunInBackground);
         if (TexturePrewarm.SupportedBuild)

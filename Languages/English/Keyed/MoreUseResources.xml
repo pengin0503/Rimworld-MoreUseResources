@@ -81,7 +81,7 @@
   <MUR_GpuRefreshInterval>Texture refresh interval {0} seconds (0 disables rescan)</MUR_GpuRefreshInterval>
   <MUR_GpuMaxTextureDimension>Largest prewarmed texture edge {0} px (larger means more GPU work)</MUR_GpuMaxTextureDimension>
   <MUR_GpuHint>Texture prewarming requires a discrete GPU and a reported Vulkan heap budget during steady frames. Waylith manages uploaded textures.</MUR_GpuHint>
-  <MUR_GpuUnsupported>Texture prewarming is available on Windows 1.7.5011 rev24 and 1.7.5014 rev1195.</MUR_GpuUnsupported>
+  <MUR_GpuUnsupported>Texture prewarming is available on RimWorld 1.7.</MUR_GpuUnsupported>
   <MUR_GpuDisabled>Off</MUR_GpuDisabled>
   <MUR_GpuWaiting>Waiting for a steady frame</MUR_GpuWaiting>
   <MUR_GpuNoBudget>Compatible driver budget unavailable</MUR_GpuNoBudget>

@@ -12,7 +12,7 @@ using Waylith.Rendering;
 namespace MoreUseResources;
 
 /// <summary>
-/// Reads counters and reports the Waylith engine of the verified builds (<see cref="MoreUseResources.Core.VerifiedBuilds"/>) already keeps. Nothing here turns on extra tracking.
+/// Reads counters and reports the Waylith engine of RimWorld 1.7 already keeps. Nothing here turns on extra tracking.
 /// Every member is only called when <see cref="TexturePrewarm.SupportedBuild"/> holds and is not inlined,
 /// so a game build without these members cannot break the caller.
 /// </summary>
