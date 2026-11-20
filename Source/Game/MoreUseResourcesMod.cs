@@ -76,6 +76,8 @@ public sealed class MoreUseResourcesMod : Mod
             Line(list, "MUR_BackgroundError".Translate());
 
         Line(list, "MUR_LoadTimingStatus".Translate(LoadTiming.Recorder.Report()));
+        if (LoadTiming.StartupCounters.Length > 0)
+            Line(list, "MUR_StartupCounters".Translate(LoadTiming.StartupCounters));
         if (runtime.XmlYieldedToWowgag)
             Line(list, "MUR_XmlYielded".Translate(StateName(runtime.WowgagXmlReuse)));
         Line(list, "MUR_CurrentPhase".Translate(PhaseName(status.Plan.Phase.Phase), ModeName(runtime.Manual)));
@@ -239,6 +241,26 @@ public sealed class MoreUseResourcesMod : Mod
             text.Append("VRAM texture heap now: ").Append(InMiB(vram.UsageBytes)).Append(" MiB used / ")
                 .Append(InMiB(vram.BudgetBytes)).AppendLine(" MiB driver budget");
         text.Append(lines);
+        text.Append("Since process start, now: ").Append(ProcessCountersNow(runtime.Status.FileBytesRead)).AppendLine();
+        foreach (System.Collections.DictionaryEntry variable in Environment.GetEnvironmentVariables())
+        {
+            string name = variable.Key?.ToString() ?? "";
+            if (name.StartsWith("DOTNET_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("COMPlus_", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("WAYLITH_", StringComparison.OrdinalIgnoreCase))
+                text.Append("Environment: ").Append(name).Append('=').Append(variable.Value).AppendLine();
+        }
+        if (TexturePrewarm.SupportedBuild)
+        {
+            try
+            {
+                text.Append("Engine: ").Append(EngineCounters.AssetPacks()).AppendLine();
+                EngineCounters.AppendMemoryReports(text);
+            }
+            catch (Exception ex)
+            {
+                text.Append("Engine reports unavailable: ").Append(ex.GetType().Name).Append(": ").AppendLine(ex.Message);
+            }
+        }
         ControllerStatus status = runtime.Status;
         if (status.ControlError != null) text.Append("Control error: ").AppendLine(status.ControlError);
         if (status.WorkerLastError != null) text.Append("Worker error: ").AppendLine(status.WorkerLastError);
@@ -254,6 +276,16 @@ public sealed class MoreUseResourcesMod : Mod
         {
             Log.Warning("[More Use Resources] Could not copy the status to the clipboard. It is in the log. " + ex.Message);
         }
+    }
+
+    /// <summary>Totals since the process started, read now on the main thread.</summary>
+    private static string ProcessCountersNow(long modReadBytes)
+    {
+        ProcessCounters c = ProcessCounters.ReadCurrent();
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        return ProcessCounters.FormatStartup((DateTime.Now - process.StartTime).TotalMilliseconds, c, GcCounters.ReadProcess(), modReadBytes)
+            + string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $", {process.Threads.Count} threads, private {process.PrivateMemorySize64 / (1024.0 * 1024.0):F0} MiB, working set {process.WorkingSet64 / (1024.0 * 1024.0):F0} MiB");
     }
 
     private static string StateName(ExternalFeatureState state) => ("MUR_ExternalState" + state).Translate();

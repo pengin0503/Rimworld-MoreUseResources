@@ -61,6 +61,7 @@
   <MUR_ResidentPacks>Experimental: keep Assets.zip packs resident in RAM (needs file prefetch; maps the same read-only files the engine maps; no speed-up is guaranteed)</MUR_ResidentPacks>
   <MUR_ResidentPackLimit>Resident asset pack limit (MiB)</MUR_ResidentPackLimit>
   <MUR_LoadTimingStatus>Load timing: {0}</MUR_LoadTimingStatus>
+  <MUR_StartupCounters>From process start to loaded: {0}</MUR_StartupCounters>
   <MUR_RecordLoadTiming>Record how long the load stages take (written to the log; applies on next start)</MUR_RecordLoadTiming>
   <MUR_GcStatus>GC in the last 10 s: gen0 {0} · gen1 {1} · gen2 {2} · stopped {3} ms ({4}%) · allocating {5} MiB/s · managed heap {6} MiB · mode {7}</MUR_GcStatus>
   <MUR_CopyStatus>Copy status (for pasting a measurement; also written to the log)</MUR_CopyStatus>

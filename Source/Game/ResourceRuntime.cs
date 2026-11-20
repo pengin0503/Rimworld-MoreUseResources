@@ -42,9 +42,14 @@ internal sealed class ResourceRuntime
     private int benchmarkInterrupted;
     private bool experimentsFaulted;
     private int dataReloaded;
-    private (long Ticks, long Frames)? gcWindowStart;
-    /// <summary>GC, TPS and FPS averaged over the unpaused play of this session.</summary>
-    internal PlayStats Play { get; } = new();
+    private WindowStart? gcWindowStart;
+    private int windowFramesOver50Ms;
+    private int windowFramesOver100Ms;
+    private double windowLongestFrameMs;
+    /// <summary>GC, TPS, FPS, CPU, JIT and file reads averaged over the unpaused play of this session.</summary>
+    internal PlayStats Play { get; } = new(Environment.ProcessorCount);
+
+    private readonly record struct WindowStart(long Ticks, long Frames, ProcessCounters Counters, long ModReadBytes, long PackDecodeTicks);
     internal GcBenchmark? GcCurrent { get; private set; }
     internal GcBenchmark? GcBaseline { get; private set; }
     internal EngineExperiments Experiments => experiments;
@@ -223,17 +228,31 @@ internal sealed class ResourceRuntime
             GcCurrent = null;
         }
         if (!gcMonitor.Sample(now, latency)) return;
-        (long Ticks, long Frames) end = (ticks?.TicksGame ?? 0, Time.frameCount);
-        (long Ticks, long Frames)? start = gcWindowStart;
+        ControllerStatus status = controller.GetStatus();
+        (int offloaded, long packDecodeTicks) = (-1, -1L);
+        if (TexturePrewarm.SupportedBuild)
+        {
+            try { (offloaded, packDecodeTicks) = EngineCounters.ReadWindow(); }
+            catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
+        }
+        var end = new WindowStart(ticks?.TicksGame ?? 0, Time.frameCount, ProcessCounters.ReadCurrent(), status.FileBytesRead, packDecodeTicks);
+        WindowStart? start = gcWindowStart;
         gcWindowStart = end;
+        var frames = (Over50: windowFramesOver50Ms, Over100: windowFramesOver100Ms, Longest: windowLongestFrameMs);
+        windowFramesOver50Ms = windowFramesOver100Ms = 0;
+        windowLongestFrameMs = 0;
         if (phase is GamePhase.MainMenu or GamePhase.Paused or GamePhase.PlayingNormal or GamePhase.PlayingFast
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
         {
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
             if (phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && start is { } begin)
-                Play.Add(speed, gcMonitor.Latest, end.Ticks - begin.Ticks, end.Frames - begin.Frames);
+                Play.Add(speed, gcMonitor.Latest, new PlayWindow(end.Ticks - begin.Ticks, end.Frames - begin.Frames,
+                    frames.Over50, frames.Over100, frames.Longest, end.Counters.Since(begin.Counters), end.ModReadBytes - begin.ModReadBytes,
+                    status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1, offloaded,
+                    packDecodeTicks >= 0 && begin.PackDecodeTicks >= 0 ? (packDecodeTicks - begin.PackDecodeTicks) * 1000.0 / Stopwatch.Frequency : -1));
         }
     }
+
 
     private void UpdateJitSources(long now)
     {
@@ -622,9 +641,13 @@ internal sealed class ResourceRuntime
                 controller.SetAssetFolders(folders);
                 QueueDemandHistoryLoad(snapshot);
             }
-            if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch) LoadTiming.CompleteOnce();
+            if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch && !LoadTiming.Recorder.Completed)
+                LoadTiming.CompleteOnce(controller.GetStatus().FileBytesRead);
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
+            if (frameIntervalMs > 50) windowFramesOver50Ms++;
+            if (frameIntervalMs > 100) windowFramesOver100Ms++;
+            if (frameIntervalMs > windowLongestFrameMs) windowLongestFrameMs = frameIntervalMs;
             controller.ReportFrame(frameIntervalMs);
             // Use the frame's live phase here, not the controller's previous 50 ms sample.
             signals.Saving = Volatile.Read(ref savingDepth) > 0;

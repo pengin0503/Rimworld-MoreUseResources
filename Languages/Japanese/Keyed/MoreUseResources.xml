@@ -61,6 +61,7 @@
   <MUR_ResidentPacks>実験機能：Assets.zip をRAMに常駐させる（ファイル先読みが必要。エンジンと同じ読み取り専用ファイルをマップします。高速化は保証されません）</MUR_ResidentPacks>
   <MUR_ResidentPackLimit>RAM常駐アセットパックの上限 (MiB)</MUR_ResidentPackLimit>
   <MUR_LoadTimingStatus>ロード工程の所要時間: {0}</MUR_LoadTimingStatus>
+  <MUR_StartupCounters>起動からロード完了までの合計: {0}</MUR_StartupCounters>
   <MUR_RecordLoadTiming>ロード工程の所要時間を記録する（ログに出力。変更は次回起動から有効）</MUR_RecordLoadTiming>
   <MUR_GcStatus>直近10秒のGC: 第0世代 {0} 回 ／ 第1世代 {1} 回 ／ 第2世代 {2} 回 ／ 停止 {3} ms（{4}%） ／ 確保速度 {5} MiB/秒 ／ マネージドヒープ {6} MiB ／ モード {7}</MUR_GcStatus>
   <MUR_CopyStatus>状態をコピー（計測値の貼り付け用。ログにも記録）</MUR_CopyStatus>

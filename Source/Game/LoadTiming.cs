@@ -20,6 +20,12 @@ internal static class LoadTiming
     internal static readonly LoadStageRecorder Recorder = new();
     private static readonly long ModStartStamp = Stopwatch.GetTimestamp();
 
+    /// <summary>
+    /// Process totals from start to loaded: CPU, main thread, JIT, GC, allocation and file reads. Empty until loaded.
+    /// They show whether loading waits on one thread, the JIT, the collector or the disk.
+    /// </summary>
+    internal static string StartupCounters { get; private set; } = string.Empty;
+
     /// <summary>The two stages WOWGAG's XML reuse replaces. They are neither patched nor counted when left to it.</summary>
     internal static bool XmlStagesYielded { get; private set; }
 
@@ -55,20 +61,32 @@ internal static class LoadTiming
     }
 
     /// <summary>Called on the main thread once play data is loaded and no long event is pending.</summary>
-    internal static void CompleteOnce()
+    internal static void CompleteOnce(long modReadBytes)
     {
         if (Recorder.Completed) return;
         long peak = 0;
+        double sinceStartMs = -1;
         try
         {
             using Process process = Process.GetCurrentProcess();
             peak = process.PeakWorkingSet64;
+            sinceStartMs = (DateTime.Now - process.StartTime).TotalMilliseconds;
         }
         catch (Exception ex) when (ex is InvalidOperationException || ex is NotSupportedException || ex is System.ComponentModel.Win32Exception)
         {
         }
         Recorder.Complete(Stopwatch.GetElapsedTime(ModStartStamp).TotalMilliseconds, peak);
-        Log.Message("[More Use Resources] Load timing: " + Recorder.Report());
+        if (sinceStartMs > 0)
+        {
+            StartupCounters = ProcessCounters.FormatStartup(sinceStartMs, ProcessCounters.ReadCurrent(), GcCounters.ReadProcess(), modReadBytes);
+            if (TexturePrewarm.SupportedBuild)
+            {
+                try { StartupCounters += "; " + EngineCounters.AssetPacks(); }
+                catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
+            }
+        }
+        Log.Message("[More Use Resources] Load timing: " + Recorder.Report()
+            + (StartupCounters.Length > 0 ? "\n[More Use Resources] Startup totals: " + StartupCounters : ""));
     }
 
     private static IEnumerable<MethodBase?> Targets()
