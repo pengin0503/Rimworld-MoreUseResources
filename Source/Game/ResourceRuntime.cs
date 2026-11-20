@@ -42,6 +42,9 @@ internal sealed class ResourceRuntime
     private int benchmarkInterrupted;
     private bool experimentsFaulted;
     private int dataReloaded;
+    private (long Ticks, long Frames)? gcWindowStart;
+    /// <summary>GC, TPS and FPS averaged over the unpaused play of this session.</summary>
+    internal PlayStats Play { get; } = new();
     internal GcBenchmark? GcCurrent { get; private set; }
     internal GcBenchmark? GcBaseline { get; private set; }
     internal EngineExperiments Experiments => experiments;
@@ -220,9 +223,16 @@ internal sealed class ResourceRuntime
             GcCurrent = null;
         }
         if (!gcMonitor.Sample(now, latency)) return;
+        (long Ticks, long Frames) end = (ticks?.TicksGame ?? 0, Time.frameCount);
+        (long Ticks, long Frames)? start = gcWindowStart;
+        gcWindowStart = end;
         if (phase is GamePhase.MainMenu or GamePhase.Paused or GamePhase.PlayingNormal or GamePhase.PlayingFast
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
+        {
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
+            if (phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && start is { } begin)
+                Play.Add(speed, gcMonitor.Latest, end.Ticks - begin.Ticks, end.Frames - begin.Frames);
+        }
     }
 
     private void UpdateJitSources(long now)

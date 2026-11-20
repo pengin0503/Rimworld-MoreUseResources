@@ -44,7 +44,7 @@
 5. ロード時間が改善したかは外部の総時間と工程ログを照合します。パックI/Oが減ったかの確認には読み取りMiB、GPU圧縮では初回生成時間・キャッシュ容量・描画を記録します。
 
 ```powershell
-$game = 'D:\SteamLibrary\steamapps\common\RimWorld\RimWorldWin64.exe'
+$game = 'D:\SteamLibrary\steamapps\common\RimWorld\RimWorld.exe'
 $launcher = '.\tools\Start-RimWorldGc.ps1'
 $manifest = 'D:\RimWorldUserData\MoreUseResources-StartupPacks.json'
 & $launcher -GameExecutable $game -Profile Default

@@ -63,6 +63,9 @@
   <MUR_LoadTimingStatus>ロード工程の所要時間: {0}</MUR_LoadTimingStatus>
   <MUR_RecordLoadTiming>ロード工程の所要時間を記録する（ログに出力。変更は次回起動から有効）</MUR_RecordLoadTiming>
   <MUR_GcStatus>直近10秒のGC: 第0世代 {0} 回 ／ 第1世代 {1} 回 ／ 第2世代 {2} 回 ／ 停止 {3} ms（{4}%） ／ 確保速度 {5} MiB/秒 ／ マネージドヒープ {6} MiB ／ モード {7}</MUR_GcStatus>
+  <MUR_CopyStatus>状態をコピー（計測値の貼り付け用。ログにも記録）</MUR_CopyStatus>
+  <MUR_StatusCopied>More Use Resources: 状態をクリップボードにコピーし、Player.log にも記録しました。</MUR_StatusCopied>
+  <MUR_PlayStats>この起動中のプレイ（ポーズ除く、ゲーム速度別の平均）: {0}</MUR_PlayStats>
   <MUR_GcPending>GC: 最初の10秒を計測中</MUR_GcPending>
   <MUR_RamEnabled>RAM機能を使用</MUR_RamEnabled>
   <MUR_HoldCopies>ゲームプロセスにもファイルのコピーを保持（追加RAMを消費）</MUR_HoldCopies>

@@ -267,6 +267,22 @@ namespace MoreUseResources.Core
             return c;
         }
 
+        /// <summary>Every setting as name=value in declaration order, for a pasted status report.</summary>
+        public string Describe()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (System.Reflection.FieldInfo field in typeof(ResourceSettings).GetFields(
+                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                object? value = field.GetValue(this);
+                string text = value is Array array
+                    ? "[" + string.Join(",", System.Linq.Enumerable.Cast<object>(array)) + "]"
+                    : Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+                parts.Add(field.Name + "=" + text);
+            }
+            return string.Join(" ", parts);
+        }
+
         /// <summary>Resolves the automatic worker count for a machine.</summary>
         public int EffectiveMaxWorkers(int logicalProcessors)
         {

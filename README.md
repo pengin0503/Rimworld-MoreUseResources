@@ -21,6 +21,7 @@ RimWorld 1.7で、CPUワーカー・RAM・VRAMを動作フェーズごとに使�
 - **OSファイルキャッシュ再先読み**では、初回の読み取り完了後に設定した間隔（初期5分、0で無効、最大120分）で有効MODの実アセットを再読込します。一度読み込んだファイルも対象となるため、OSが破棄したファイルキャッシュの再形成を試みられます。RAMコピーを保持しているファイルは初回読取時のSHA-256と再先読み時のSHA-256を比較します。**内容が変わった場合のみ古いRAMコピーを個別に解放**し、既存の30秒クールダウン後に実ファイルを読み直します。同じファイルの二重確保を避け、変わっていないコピーは保持します。ゲームはこれらの私有コピーを参照せず、OSのファイルキャッシュを利用します。失敗・停止・メモリ不足・予約解放後の再試行には既存の安全ガードとクールダウンを適用します。SSDからの実読み込み量が増える場合があり、FPS/TPS改善は未検証です。
 - 「今すぐ実行」は手動で強度100%にします。セーブ、非アクティブ時、ワールド画面の設定、メモリ予算は引き続き適用されます。「RAM解放」はMODが保持するコピーと予約を解放して一時停止します。「自動」でフェーズ制御に戻ります。
 - 状態欄にフェーズ、ワーカー枠、CPUワーカーが使用する全論理CPU比率、FPS・TPS、フレーム間隔（約1秒間隔で更新）、**OSファイルキャッシュ再先読み完了回数**、アセット検査の進捗・再検査回数・変更検出数、コピー・予約した容量、プロセスのワーキングセット、GPUの最終予算サンプルと保留テクスチャ件数を表示します。FPS・TPSはMOD導入後のゲーム内計測であり、導入前との差分は自動判定しません。
+- 状態欄の一番上の **状態をコピー** は、状態欄の全行、ゲームの版、MOD数、論理CPU数、VRAMの使用量と予算、全設定をクリップボードに入れ、同じ内容を `Player.log` にも `[More Use Resources] Status snapshot:` として書きます。状態欄の「この起動中のプレイ」は、ポーズしていない10秒の区間だけを足したゲーム速度別の平均（TPS、FPS、GCの回数と停止時間、確保速度）です。
 
 ## 実装範囲
 
@@ -63,7 +64,7 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 対象MOD、設定ファイル、ワーカー数の**3つをすべて指定したときだけ**、そのファイルのワーカー数を書き換えます。1つでも欠けると何も変更せず警告を出します。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -ExternalWorkerOwner Wowgag -ExternalWorkerCount 8 -ExternalSettingsPath "D:\RimWorldUserData\Config\Mod_3797541313_GppMod17.xml"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -ExternalWorkerOwner Wowgag -ExternalWorkerCount 8 -ExternalSettingsPath "D:\RimWorldUserData\Config\Mod_3797541313_GppMod17.xml"
 ```
 
 | 対象 | 設定名・型 | 範囲 | 反映 | 確認元 |
@@ -79,7 +80,7 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 ### 起動前に選んだセーブを先読みする（任意）
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -WarmSaveFile "D:\RimWorldUserData\Saves\Colony.rws"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -WarmSaveFile "D:\RimWorldUserData\Saves\Colony.rws"
 ```
 
 指定した `.rws` を1つだけ読み取り専用で読み、OSファイルキャッシュに載せます。セーブは自動では選ばず、ロードはゲームのメニューから行います。`-WarmSaveBudgetMiB`（初期256）、`-WarmSaveTimeoutSeconds`（初期5）、`-WarmMinFreeMiB`（空き物理RAMの下限、初期6144、0で確認なし）で制限します。パック先読みと合計の容量・時間を共有します。読めない場合は先読みを省略してそのまま起動します。`-NoLaunch` を付けると、ゲームを起動せずに準備だけを行います。
@@ -101,7 +102,7 @@ WOWGAG's Performance Patch、Overclock、Axen's Performance Enhancementsと併�
 GCの比較では同じセーブ、ゲーム速度、画面、MOD構成を使い、通常起動またはWorkstationで基準を取った後にServerを試してください。ゲーム内の表示で適用された種類を確認できます。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Server -ServerHeapCount 8
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Server -ServerHeapCount 8
 ```
 
 `-ServerHeapCount` を省略するとランタイム既定のヒープ数を使用します。Waylithのカスタムランタイムで環境変数が適用されるか、GC停止時間が改善するかは実機計測が必要です。[.NET GCの構成仕様](https://learn.microsoft.com/dotnet/core/runtime-config/garbage-collector)
@@ -117,7 +118,7 @@ GPU先読みはエンジンがアトラス作成後に退避させた元画像�
 対応ビルドでは、Waylithが選んだキャッシュ世代・エンコード方式・インストールID・MODルートのハッシュを照合してZIPを選びます。アセットパックはエンジンが実際に開いたパスを使います。**起動前の先読み用に使用中のアセットパック一覧を出力** をONにしてタイトル画面まで進むと、RimWorldのユーザーデータフォルダに `MoreUseResources-StartupPacks.json` が作成されます。次回起動時に渡すと、一覧とMOD構成・ファイル情報を照合し、予算内のファイルを先読みします。`-WarmPackBudgetMiB` と `-WarmTimeoutSeconds` で読み取り容量と作業時間の目安を指定できます。
 
 ```powershell
-.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorldWin64.exe" -Profile Default -GpuTextureEncoding -StartupPackManifest "D:\RimWorldUserData\MoreUseResources-StartupPacks.json"
+.\tools\Start-RimWorldGc.ps1 -GameExecutable "D:\Games\RimWorld\RimWorld.exe" -Profile Default -GpuTextureEncoding -StartupPackManifest "D:\RimWorldUserData\MoreUseResources-StartupPacks.json"
 ```
 
 `-GpuTextureEncoding` はそのゲームプロセスの `WAYLITH_LOAD_ENCODE` を `gpu` に設定します。Waylithの条件を満たす画像のブロック圧縮が対象です。対応外の画像はエンジンの通常処理を使い、GPU方式のテクスチャキャッシュには別の名前が使われます。GPU方式で起動した後に作られた一覧を、次回のGPU方式起動で使うとそのキャッシュも先読みできます。
@@ -148,6 +149,8 @@ Windows 1.7.5011 rev24の実DLLで、フレーム更新、セーブ、Waylithの
 [ハードウェア活用7件の実装・検証仕様](docs/plans/2026-11-16-hardware-usage-proposals-ja.md)
 
 ### Windows実機での比較測定
+
+ゲームを1回起動して値を貼るだけの短い手順は[PCでの短い計測](docs/testing/pc-quick-measurement-ja.md)にあります。
 
 起動時間、TPS、フレーム時間、RAM・VRAM使用量を測る手順は、[Windows実機測定ガイド](docs/testing/windows-waylith-benchmark-ja.md)を参照してください。
 
