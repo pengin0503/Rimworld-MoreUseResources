@@ -46,10 +46,18 @@ internal sealed class ResourceRuntime
     private int windowFramesOver50Ms;
     private int windowFramesOver100Ms;
     private double windowLongestFrameMs;
+    private long lastObservedMs;
+    private bool gcFocused = true;
+    /// <summary>A frame-to-frame gap this much longer than the frame interval means the engine skipped whole updates.</summary>
+    private const int SkippedUpdatesGapMs = 1000;
+    private readonly ThreadSampler threadSampler = new();
     /// <summary>GC, TPS, FPS, CPU, JIT and file reads averaged over the unpaused play of this session.</summary>
     internal PlayStats Play { get; } = new(Environment.ProcessorCount);
+    /// <summary>Thread CPU and hard page faults since the process started, read on the main thread.</summary>
+    internal ThreadSnapshot? ReadThreads() => threadSampler.Read();
 
-    private readonly record struct WindowStart(long Ticks, long Frames, ProcessCounters Counters, long ModReadBytes, long PackDecodeTicks);
+    private readonly record struct WindowStart(long Ticks, long Frames, ProcessCounters Counters, long ModReadBytes, long PackDecodeTicks,
+        ThreadSnapshot? Threads, (long Tick, long Map, long Ui)? Main);
     internal GcBenchmark? GcCurrent { get; private set; }
     internal GcBenchmark? GcBaseline { get; private set; }
     internal EngineExperiments Experiments => experiments;
@@ -152,6 +160,7 @@ internal sealed class ResourceRuntime
                 prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeUpdate), flags)),
                 postfix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterUpdate), flags)));
             Volatile.Write(ref instance, this);
+            MainThreadTimers.Install(harmony);
             try
             {
                 harmony.Patch(AccessTools.DeclaredMethod(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods)),
@@ -215,10 +224,13 @@ internal sealed class ResourceRuntime
         }
     }
 
-    private void UpdateGc(long now, GamePhase phase, TickManager? ticks)
+    private void UpdateGc(long now, GamePhase phase, TickManager? ticks, bool focused)
     {
         GCLatencyMode latency = GCSettings.LatencyMode;
-        bool interrupted = Interlocked.Exchange(ref benchmarkInterrupted, 0) != 0;
+        // A focus change also starts over: with "run in background" on, the game keeps playing behind other windows,
+        // and that time competes with whatever the player switched to.
+        bool interrupted = Interlocked.Exchange(ref benchmarkInterrupted, 0) != 0 | focused != gcFocused;
+        gcFocused = focused;
         var context = (phase, (int?)ticks?.CurTimeSpeed, ticks?.TickRateMultiplier);
         if (interrupted || context != benchmarkContext || latency != benchmarkLatency)
         {
@@ -228,6 +240,7 @@ internal sealed class ResourceRuntime
             GcCurrent = null;
         }
         if (!gcMonitor.Sample(now, latency)) return;
+        long sampling = Stopwatch.GetTimestamp();
         ControllerStatus status = controller.GetStatus();
         (int offloaded, long packDecodeTicks) = (-1, -1L);
         if (TexturePrewarm.SupportedBuild)
@@ -235,7 +248,9 @@ internal sealed class ResourceRuntime
             try { (offloaded, packDecodeTicks) = EngineCounters.ReadWindow(); }
             catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
         }
-        var end = new WindowStart(ticks?.TicksGame ?? 0, Time.frameCount, ProcessCounters.ReadCurrent(), status.FileBytesRead, packDecodeTicks);
+        var end = new WindowStart(ticks?.TicksGame ?? 0, Time.frameCount, ProcessCounters.ReadCurrent(), ModFileReads.Bytes, packDecodeTicks,
+            threadSampler.Read(), MainThreadTimers.Installed ? MainThreadTimers.Read() : null);
+        double samplingMs = Stopwatch.GetElapsedTime(sampling).TotalMilliseconds;
         WindowStart? start = gcWindowStart;
         gcWindowStart = end;
         var frames = (Over50: windowFramesOver50Ms, Over100: windowFramesOver100Ms, Longest: windowLongestFrameMs);
@@ -245,12 +260,30 @@ internal sealed class ResourceRuntime
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
         {
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
-            if (phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && start is { } begin)
-                Play.Add(speed, gcMonitor.Latest, new PlayWindow(end.Ticks - begin.Ticks, end.Frames - begin.Frames,
-                    frames.Over50, frames.Over100, frames.Longest, end.Counters.Since(begin.Counters), end.ModReadBytes - begin.ModReadBytes,
-                    status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1, offloaded,
-                    packDecodeTicks >= 0 && begin.PackDecodeTicks >= 0 ? (packDecodeTicks - begin.PackDecodeTicks) * 1000.0 / Stopwatch.Frequency : -1));
+            if (focused && phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && context.Item3 is float rate
+                && start is { } begin)
+                Play.Add(speed, rate, gcMonitor.Latest, PlayWindowBetween(begin, end, frames, status, offloaded, samplingMs));
         }
+    }
+
+    private static PlayWindow PlayWindowBetween(WindowStart begin, WindowStart end, (int Over50, int Over100, double Longest) frames,
+        ControllerStatus status, int offloaded, double samplingMs)
+    {
+        static double Ms(long stopwatchTicks) => stopwatchTicks * 1000.0 / Stopwatch.Frequency;
+        var window = new PlayWindow(end.Ticks - begin.Ticks, end.Frames - begin.Frames, frames.Over50, frames.Over100, frames.Longest,
+            end.Counters.Since(begin.Counters), end.ModReadBytes - begin.ModReadBytes)
+        {
+            AvailableBytes = status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1,
+            OffloadedTextures = offloaded,
+            PackDecodeMs = end.PackDecodeTicks >= 0 && begin.PackDecodeTicks >= 0 ? Ms(end.PackDecodeTicks - begin.PackDecodeTicks) : -1,
+            Threads = begin.Threads != null && end.Threads != null ? ThreadSampler.Delta(begin.Threads, end.Threads) : null,
+            HardFaults = begin.Threads?.HardFaults is { } faultsBefore && end.Threads?.HardFaults is { } faultsAfter
+                ? Math.Max(0, faultsAfter - faultsBefore) : -1,
+            SamplingMs = samplingMs,
+        };
+        if (begin.Main is { } a && end.Main is { } b)
+            window = window with { TickMs = Ms(b.Tick - a.Tick), MapMs = Ms(b.Map - a.Map), UiMs = Ms(b.Ui - a.Ui) };
+        return window;
     }
 
 
@@ -642,9 +675,18 @@ internal sealed class ResourceRuntime
                 QueueDemandHistoryLoad(snapshot);
             }
             if (loaded && !queuedLongEvent && recordLoadTimingOnLaunch && !LoadTiming.Recorder.Completed)
-                LoadTiming.CompleteOnce(controller.GetStatus().FileBytesRead);
+                LoadTiming.CompleteOnce(ModFileReads.Bytes, threadSampler.Read());
 
             double frameIntervalMs = Time.unscaledDeltaTime * 1000;
+            // While the window is unfocused and the game does not run in the background, the engine skips whole
+            // updates, and the first frame afterwards reports a short interval. Only the wall time shows the gap,
+            // so the measurement windows that span it are dropped instead of averaging the idle time in.
+            if (lastObservedMs > 0 && now - lastObservedMs > frameIntervalMs + SkippedUpdatesGapMs)
+            {
+                Interlocked.Exchange(ref benchmarkInterrupted, 1);
+                performance.Reset();
+            }
+            lastObservedMs = now;
             if (frameIntervalMs > 50) windowFramesOver50Ms++;
             if (frameIntervalMs > 100) windowFramesOver100Ms++;
             if (frameIntervalMs > windowLongestFrameMs) windowLongestFrameMs = frameIntervalMs;
@@ -660,7 +702,7 @@ internal sealed class ResourceRuntime
                 gcBaselineLoaded = true;
                 GcBaseline = GcBenchmark.Load(GcBaselinePath);
             }
-            UpdateGc(now, phase.Phase, ticks);
+            UpdateGc(now, phase.Phase, ticks, focused);
             if (ready)
             {
                 QueueStartupManifest(now);

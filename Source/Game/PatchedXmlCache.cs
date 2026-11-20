@@ -268,6 +268,7 @@ internal static class PatchedXmlCache
             if (total > maxBytes || length != before.Length) return false;
             Add(hash, Path.GetFileName(path));
             hash.AppendData(SHA256.HashData(stream));
+            ModFileReads.Add(stream.Position);
             var after = new FileInfo(path);
             if (after.Length != length || after.LastWriteTimeUtc != before.LastWriteTimeUtc) return false;
         }

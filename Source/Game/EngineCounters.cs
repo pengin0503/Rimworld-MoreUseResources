@@ -35,6 +35,13 @@ internal static class EngineCounters
             + $"{TextureResidency.OffloadedCount} textures ({TextureResidency.OffloadedBytes / (1024.0 * 1024.0):F0} MiB) offloaded to RAM");
     }
 
+    /// <summary>
+    /// The frame cap the engine applies and where it comes from, with the Vulkan present mode,
+    /// as the engine resolves it each frame. FPS at the cap means the main thread waited, not that it was busy.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static string FrameCap() => Waylith.EngineApplication.FrameRateCapDescription;
+
     /// <summary>The engine's own RAM and VRAM breakdowns, as its crash reports and out-of-memory messages print them.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal static void AppendMemoryReports(StringBuilder text)

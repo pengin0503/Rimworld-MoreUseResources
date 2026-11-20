@@ -66,7 +66,7 @@
   <MUR_GcStatus>GC in the last 10 s: gen0 {0} · gen1 {1} · gen2 {2} · stopped {3} ms ({4}%) · allocating {5} MiB/s · managed heap {6} MiB · mode {7}</MUR_GcStatus>
   <MUR_CopyStatus>Copy status (for pasting a measurement; also written to the log)</MUR_CopyStatus>
   <MUR_StatusCopied>More Use Resources: status copied to the clipboard and written to Player.log.</MUR_StatusCopied>
-  <MUR_PlayStats>Unpaused play this session (per game speed, average): {0}</MUR_PlayStats>
+  <MUR_PlayStats>Unpaused play this session (average per game speed and tick-rate multiplier; time in other windows left out): {0}</MUR_PlayStats>
   <MUR_GcPending>GC: measuring the first 10 seconds</MUR_GcPending>
   <MUR_RamEnabled>Allow RAM features</MUR_RamEnabled>
   <MUR_HoldCopies>Also keep file copies in the game process (uses extra RAM)</MUR_HoldCopies>

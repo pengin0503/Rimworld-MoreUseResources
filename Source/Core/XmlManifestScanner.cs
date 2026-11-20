@@ -36,12 +36,13 @@ namespace MoreUseResources.Core
         private const int MaxDefinitionKeysPerFile = 8192;
         private const int MaxDefNameChars = 256;
         private const int MaxDepth = 64;
+        private const int BufferBytes = 64 * 1024;
 
         public static XmlManifestReport Scan(string path, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete, 64 * 1024, FileOptions.SequentialScan);
+                FileShare.ReadWrite | FileShare.Delete, BufferBytes, FileOptions.SequentialScan);
             if (stream.Length > MaxXmlBytes)
                 return new XmlManifestReport(false, true, 0, Array.Empty<string>());
             var settings = new XmlReaderSettings
@@ -102,6 +103,11 @@ namespace MoreUseResources.Core
             {
                 // For example, a non-text-only <defName> element is malformed for this inventory.
                 return new XmlManifestReport(true, false, 0, Array.Empty<string>());
+            }
+            finally
+            {
+                // The reader does not close the stream, so its position still tells how far it read.
+                ModFileReads.Add(ModFileReads.Buffered(stream.Position, stream.Length, BufferBytes));
             }
         }
     }

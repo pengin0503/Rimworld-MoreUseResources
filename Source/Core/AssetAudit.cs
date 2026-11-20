@@ -321,6 +321,7 @@ namespace MoreUseResources.Core
                     while (MayRun(generation, token) && (count = stream.Read(buffer, 0, buffer.Length)) > 0)
                     {
                         size += count;
+                        ModFileReads.Add(count);
                         if (size > MaxFileBytes) return;
                         hash.AppendData(buffer, 0, count);
                     }

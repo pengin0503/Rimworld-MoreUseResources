@@ -60,8 +60,11 @@ internal static class LoadTiming
         }
     }
 
-    /// <summary>Called on the main thread once play data is loaded and no long event is pending.</summary>
-    internal static void CompleteOnce(long modReadBytes)
+    /// <summary>
+    /// Called on the main thread once play data is loaded and no long event is pending.
+    /// <paramref name="threads"/> is read on the main thread at that moment; it shows which threads did the loading.
+    /// </summary>
+    internal static void CompleteOnce(long modReadBytes, ThreadSnapshot? threads)
     {
         if (Recorder.Completed) return;
         long peak = 0;
@@ -79,6 +82,7 @@ internal static class LoadTiming
         if (sinceStartMs > 0)
         {
             StartupCounters = ProcessCounters.FormatStartup(sinceStartMs, ProcessCounters.ReadCurrent(), GcCounters.ReadProcess(), modReadBytes);
+            if (threads != null) StartupCounters += "; " + FormatThreads(threads);
             if (TexturePrewarm.SupportedBuild)
             {
                 try { StartupCounters += "; " + EngineCounters.AssetPacks(); }
@@ -88,6 +92,11 @@ internal static class LoadTiming
         Log.Message("[More Use Resources] Load timing: " + Recorder.Report()
             + (StartupCounters.Length > 0 ? "\n[More Use Resources] Startup totals: " + StartupCounters : ""));
     }
+
+    /// <summary>CPU seconds per thread group since each thread started, and the process's hard page faults.</summary>
+    internal static string FormatThreads(ThreadSnapshot threads) =>
+        "CPU seconds by thread: " + ThreadSampler.Format(ThreadSampler.Totals(threads), 1000)
+        + (threads.HardFaults is { } faults ? ", hard page faults " + faults.ToString(System.Globalization.CultureInfo.InvariantCulture) : "");
 
     private static IEnumerable<MethodBase?> Targets()
     {

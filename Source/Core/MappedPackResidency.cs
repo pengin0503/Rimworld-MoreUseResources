@@ -328,6 +328,7 @@ namespace MoreUseResources.Core
                             offset + totalRead);
                         if (read <= 0) throw new IOException("Asset pack became shorter while it was mapped.");
                         totalRead += read;
+                        ModFileReads.Add(read);
                     }
                 }
                 catch (ObjectDisposedException) when (Volatile.Read(ref mapping.Closed))

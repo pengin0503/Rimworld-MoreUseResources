@@ -240,8 +240,18 @@ public sealed class MoreUseResourcesMod : Mod
         if (TexturePrewarm.SupportedBuild && TexturePrewarm.TryReadTextureHeap(out VramInfo vram))
             text.Append("VRAM texture heap now: ").Append(InMiB(vram.UsageBytes)).Append(" MiB used / ")
                 .Append(InMiB(vram.BudgetBytes)).AppendLine(" MiB driver budget");
+        text.Append("Screen ").Append(Screen.width).Append('x').Append(Screen.height).Append(' ').Append(Screen.fullScreenMode)
+            .Append(" · run in background ").Append(Prefs.RunInBackground);
+        if (TexturePrewarm.SupportedBuild)
+        {
+            try { text.Append(" · frame cap ").Append(EngineCounters.FrameCap()); }
+            catch (Exception ex) when (ex is MissingMemberException or TypeLoadException) { }
+        }
+        text.AppendLine();
         text.Append(lines);
-        text.Append("Since process start, now: ").Append(ProcessCountersNow(runtime.Status.FileBytesRead)).AppendLine();
+        text.Append("Since process start, now: ").Append(ProcessCountersNow(ModFileReads.Bytes));
+        if (runtime.ReadThreads() is { } threads) text.Append("; ").Append(LoadTiming.FormatThreads(threads));
+        text.AppendLine();
         foreach (System.Collections.DictionaryEntry variable in Environment.GetEnvironmentVariables())
         {
             string name = variable.Key?.ToString() ?? "";
