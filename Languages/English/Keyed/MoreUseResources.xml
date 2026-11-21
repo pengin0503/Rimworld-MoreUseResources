@@ -67,6 +67,8 @@
   <MUR_CopyStatus>Copy status (for pasting a measurement; also saved to a file)</MUR_CopyStatus>
   <MUR_StatusCopied>More Use Resources: status copied to the clipboard and added to MoreUseResources-Status.txt next to the Logs folder.</MUR_StatusCopied>
   <MUR_PlayStats>Unpaused play this session (average per game speed and tick-rate multiplier; time in other windows left out): {0}</MUR_PlayStats>
+  <MUR_TitleScreenStats>Title screen this session (average; time in other windows left out): {0}</MUR_TitleScreenStats>
+  <MUR_SaveTimes>Saves this session (main-thread time of each save, autosaves included): {0}</MUR_SaveTimes>
   <MUR_GcPending>GC: measuring the first 10 seconds</MUR_GcPending>
   <MUR_ServerGcStatus>GC kind: {0} in this launch ({1}) · start-up file: {2}</MUR_ServerGcStatus>
   <MUR_GcSourceEnvironment>set by the environment variable {0}</MUR_GcSourceEnvironment>

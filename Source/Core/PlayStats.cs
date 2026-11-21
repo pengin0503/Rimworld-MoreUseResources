@@ -55,8 +55,17 @@ public sealed class PlayStats
 {
     private readonly SortedDictionary<(int Speed, double Multiplier), Totals> _byRate = new();
     private readonly int _logicalProcessors;
+    private readonly bool _countsTicks;
 
-    public PlayStats(int logicalProcessors) => _logicalProcessors = Math.Max(1, logicalProcessors);
+    /// <param name="countsTicks">
+    /// False for windows in which the game does not tick (the title screen): the report then leaves out the speed,
+    /// TPS, tick and map-update parts, and the caller adds every window under speed 0 and multiplier 0.
+    /// </param>
+    public PlayStats(int logicalProcessors, bool countsTicks = true)
+    {
+        _logicalProcessors = Math.Max(1, logicalProcessors);
+        _countsTicks = countsTicks;
+    }
 
     public bool HasData => _byRate.Count > 0;
 
@@ -121,6 +130,8 @@ public sealed class PlayStats
             t.MapMs += window.MapMs;
             t.UiMs += window.UiMs;
             t.SplitWallMs += p.WallMs;
+            t.SplitTicks += Math.Max(0, window.Ticks);
+            t.SplitFrames += Math.Max(0, window.Frames);
         }
         if (window.SamplingMs >= 0)
         {
@@ -134,6 +145,20 @@ public sealed class PlayStats
             t.ThreadReadWindows++;
             t.MaxThreadReadMs = Math.Max(t.MaxThreadReadMs, window.ThreadReadMs);
         }
+    }
+
+    /// <summary>
+    /// Shares of the wall time, with the time per game tick and per frame: when the game runs at its target speed,
+    /// the main thread waits for the next frame, so the shares and the TPS hide a slower tick but the time per tick does not.
+    /// </summary>
+    private string MainThreadSplit(Totals t, CultureInfo c)
+    {
+        string PerFrame(double ms) => t.SplitFrames > 0 ? string.Create(c, $" ({ms / t.SplitFrames:F2} ms per frame)") : string.Empty;
+        string ui = string.Create(c, $"UI {t.UiMs / t.SplitWallMs * 100:F0}%") + PerFrame(t.UiMs);
+        if (!_countsTicks) return "main thread in " + ui + " of wall time";
+        string tick = string.Create(c, $"main thread in ticks {t.TickMs / t.SplitWallMs * 100:F0}%")
+            + (t.SplitTicks > 0 ? string.Create(c, $" ({t.TickMs / t.SplitTicks:F3} ms per tick)") : string.Empty);
+        return tick + string.Create(c, $", map update {t.MapMs / t.SplitWallMs * 100:F0}%") + PerFrame(t.MapMs) + ", " + ui + " of wall time";
     }
 
     private static void Accumulate(ref double sum, ref double basis, double? value, double? over)
@@ -155,10 +180,14 @@ public sealed class PlayStats
             double target = 60 * pair.Key.Multiplier;
             double tps = t.Ticks / t.Seconds;
             if (text.Length > 0) text.Append('\n');
-            text.Append(c, $"speed {pair.Key.Speed} x{pair.Key.Multiplier:0.##}: {t.Seconds:F0} s ({t.Windows} windows), ")
-                .Append(c, $"TPS {tps:F1}")
-                .Append(target > 0 ? string.Create(c, $" ({tps / target * 100:F0}% of {target:0.#})") : string.Empty)
-                .Append(c, $", FPS {t.Frames / t.Seconds:F1}, ")
+            if (_countsTicks)
+                text.Append(c, $"speed {pair.Key.Speed} x{pair.Key.Multiplier:0.##}: {t.Seconds:F0} s ({t.Windows} windows), ")
+                    .Append(c, $"TPS {tps:F1}")
+                    .Append(target > 0 ? string.Create(c, $" ({tps / target * 100:F0}% of {target:0.#})") : string.Empty)
+                    .Append(", ");
+            else
+                text.Append(c, $"{t.Seconds:F0} s ({t.Windows} windows), ");
+            text.Append(c, $"FPS {t.Frames / t.Seconds:F1}, ")
                 .Append(c, $"GC gen0/1/2 {t.Gen0}/{t.Gen1}/{t.Gen2}, ")
                 .Append(c, $"stopped {t.PauseMs:F0} ms ({t.PauseMs / (t.Seconds * 10):F2}%), ")
                 .Append(c, $"worst 10 s window {t.WorstWindowPauseMs:F0} ms, ")
@@ -179,9 +208,7 @@ public sealed class PlayStats
             text.Append(t.MaxOffloaded >= 0 ? string.Create(c, $", textures offloaded to RAM max {t.MaxOffloaded}") : ", offloaded n/a");
             text.Append(t.PackDecodeMs >= 0 ? string.Create(c, $", pack unpacking {t.PackDecodeMs:F0} ms CPU") : ", pack unpacking n/a");
             text.Append("\n  ");
-            text.Append(t.SplitWallMs > 0
-                ? string.Create(c, $"main thread in ticks {t.TickMs / t.SplitWallMs * 100:F0}%, map update {t.MapMs / t.SplitWallMs * 100:F0}%, UI {t.UiMs / t.SplitWallMs * 100:F0}% of wall time")
-                : "main thread split n/a");
+            text.Append(t.SplitWallMs > 0 ? MainThreadSplit(t, c) : "main thread split n/a");
             text.Append("; CPU cores by thread: ").Append(ThreadSampler.Format(t.ThreadGroups, t.ThreadWallMs));
             text.Append(t.SampledWindows > 0
                 ? string.Create(c, $"; measuring took {t.SamplingMs / t.SampledWindows:F1} ms per window on the main thread (max {t.MaxSamplingMs:F1})")
@@ -231,6 +258,8 @@ public sealed class PlayStats
         public double MapMs;
         public double UiMs;
         public double SplitWallMs;
+        public long SplitTicks;
+        public long SplitFrames;
         public double SamplingMs;
         public int SampledWindows;
         public double MaxSamplingMs;
