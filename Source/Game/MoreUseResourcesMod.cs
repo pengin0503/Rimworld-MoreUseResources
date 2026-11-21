@@ -105,6 +105,8 @@ public sealed class MoreUseResourcesMod : Mod
         Line(list, "MUR_ServerGcStatus".Translate(ServerGcSetting.LaunchGc, sourceKey.Translate(source).ToString(),
             ("MUR_ServerGcFile" + file.State).Translate(file.Error ?? "").ToString()));
         Line(list, "MUR_PlayStats".Translate(runtime.Play.Report()));
+        Line(list, "MUR_TitleScreenStats".Translate(runtime.TitleScreen.Report()));
+        Line(list, "MUR_SaveTimes".Translate(runtime.Saves.Report()));
         if (runtime.GcCurrent is { } current)
         {
             if (list.ButtonText("MUR_GcSaveBaseline".Translate())) runtime.SaveGcBaseline();

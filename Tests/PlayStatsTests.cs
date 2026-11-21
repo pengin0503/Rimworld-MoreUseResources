@@ -53,7 +53,7 @@ namespace MoreUseResources.Tests
                 + "  process CPU 25.0% of 16 logical CPUs, main thread busy 60%, whole PC busy 25%, JIT 60 ms (400 methods), "
                 + "I/O read 1.00 MiB/s (this mod 0.10), hard page faults 2.0/s, frames over 50 ms 4, over 100 ms 1, longest 140 ms, "
                 + "free RAM min 6144 MiB, textures offloaded to RAM max 9, pack unpacking 20 ms CPU\n"
-                + "  main thread in ticks 45%, map update 15%, UI 5% of wall time; "
+                + "  main thread in ticks 45% (2.571 ms per tick), map update 15% (2.54 ms per frame), UI 5% (0.85 ms per frame) of wall time; "
                 + "CPU cores by thread: main 0.60, WaylithJob (15) 0.50, RenderThread 0.30; "
                 + "measuring took 0.2 ms per window on the main thread (max 0.3), reading threads 7.0 ms on a background thread (max 8.0)",
                 stats.Report());
@@ -72,6 +72,33 @@ namespace MoreUseResources.Tests
             Assert.Contains("speed 3 x12: 10 s (1 windows), TPS 720.0 (100% of 720), FPS 60.0,", report);
             Assert.True(report.IndexOf("x6:", StringComparison.Ordinal) < report.IndexOf("x12:", StringComparison.Ordinal));
             Assert.Equal(2, report.Split("speed ").Length - 1);
+        }
+
+        [Fact]
+        public void Time_per_tick_uses_only_the_windows_with_a_main_thread_split()
+        {
+            // The tick share is the same in both windows, but the second has no split: its ticks must not dilute the time per tick.
+            var stats = new PlayStats(4);
+            stats.Add(3, 6, Window(1, 0, 0, 1), new PlayWindow(3600, 600, 0, 0, 16, Counters(1), 0) { TickMs = 3600, MapMs = 600, UiMs = 300 });
+            stats.Add(3, 6, Window(1, 0, 0, 1), new PlayWindow(3600, 600, 0, 0, 16, Counters(1), 0));
+            Assert.Contains("main thread in ticks 36% (1.000 ms per tick), map update 6% (1.00 ms per frame), UI 3% (0.50 ms per frame) of wall time",
+                stats.Report());
+        }
+
+        [Fact]
+        public void Title_screen_report_leaves_out_speed_ticks_and_map_update()
+        {
+            var stats = new PlayStats(8, countsTicks: false);
+            stats.Add(0, 0, Window(3, 30, 20, 500), new PlayWindow(0, 1200, 2, 1, 120, Counters(20_000), 0)
+            {
+                TickMs = 0, MapMs = 0, UiMs = 1200, Threads = Threads(5000, 2000, 1000),
+            });
+            string report = stats.Report();
+            Assert.StartsWith("10 s (1 windows), FPS 120.0, GC gen0/1/2 3/1/0, stopped 30 ms (0.30%),", report);
+            Assert.DoesNotContain("TPS", report);
+            Assert.DoesNotContain("speed", report);
+            Assert.Contains("frames over 50 ms 2, over 100 ms 1, longest 120 ms", report);
+            Assert.Contains("  main thread in UI 12% (1.00 ms per frame) of wall time; CPU cores by thread: main 0.50, RenderThread 0.20, WaylithJob (15) 0.10;", report);
         }
 
         [Fact]

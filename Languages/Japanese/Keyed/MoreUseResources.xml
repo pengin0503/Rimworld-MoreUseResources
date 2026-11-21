@@ -67,6 +67,8 @@
   <MUR_CopyStatus>状態をコピー（計測値の貼り付け用。ファイルにも保存）</MUR_CopyStatus>
   <MUR_StatusCopied>More Use Resources: 状態をクリップボードにコピーし、Logs フォルダーと同じ場所の MoreUseResources-Status.txt に追加しました。</MUR_StatusCopied>
   <MUR_PlayStats>この起動中のプレイ（ポーズと別ウィンドウの間を除く、ゲーム速度と倍率ごとの平均）: {0}</MUR_PlayStats>
+  <MUR_TitleScreenStats>この起動中のタイトル画面（別ウィンドウの間を除く平均）: {0}</MUR_TitleScreenStats>
+  <MUR_SaveTimes>この起動中のセーブ（1 回ごとのメインスレッドの時間、自動セーブを含む）: {0}</MUR_SaveTimes>
   <MUR_GcPending>GC: 最初の10秒を計測中</MUR_GcPending>
   <MUR_ServerGcStatus>GC の種類：この起動は {0}（{1}） ／ 起動設定ファイル：{2}</MUR_ServerGcStatus>
   <MUR_GcSourceEnvironment>環境変数 {0} による</MUR_GcSourceEnvironment>

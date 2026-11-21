@@ -58,6 +58,12 @@ internal sealed class ResourceRuntime
     private PendingWindow? pendingWindow;
     /// <summary>GC, TPS, FPS, CPU, JIT and file reads averaged over the unpaused play of this session.</summary>
     internal PlayStats Play { get; } = new(Environment.ProcessorCount);
+    /// <summary>The same values over the focused time on the title screen, where mods import or prepare their data.</summary>
+    internal PlayStats TitleScreen { get; } = new(Environment.ProcessorCount, countsTicks: false);
+    /// <summary>Main-thread time, GC pause and allocation of each game save of this session.</summary>
+    internal SaveTimes Saves { get; } = new();
+    /// <summary>Clock, GC pause and allocation counters when the outermost save call began; main thread only.</summary>
+    private (long Started, double PauseMs, long Allocated) saveStart;
     /// <summary>Thread CPU and hard page faults since the process started. Takes a few milliseconds on Windows; for one-off use.</summary>
     internal ThreadSnapshot? ReadThreads() => mainThreadId >= 0 ? threadSampler.Read(mainThreadId) : threadSampler.Read();
 
@@ -65,9 +71,12 @@ internal sealed class ResourceRuntime
         Task<ThreadRead>? Threads, (long Tick, long Map, long Ui)? Main);
     /// <summary>A thread snapshot and how long the background thread took to read it.</summary>
     private readonly record struct ThreadRead(ThreadSnapshot? Snapshot, double Ms);
-    /// <summary>A finished play window that waits for the thread read at its end, which runs on a background thread.</summary>
+    /// <summary>
+    /// A finished play or title-screen window that waits for the thread read at its end, which runs on a background
+    /// thread. A title-screen window has speed 0 and rate 0.
+    /// </summary>
     private sealed record PendingWindow(int Speed, float Rate, GcSnapshot Gc, WindowStart Begin, WindowStart End,
-        (int Over50, int Over100, double Longest) Frames, long AvailableBytes, int Offloaded, double SamplingMs);
+        (int Over50, int Over100, double Longest) Frames, long AvailableBytes, int Offloaded, double SamplingMs, bool Title = false);
     internal GcBenchmark? GcCurrent { get; private set; }
     internal GcBenchmark? GcBaseline { get; private set; }
     internal EngineExperiments Experiments => experiments;
@@ -164,8 +173,8 @@ internal sealed class ResourceRuntime
         try
         {
             harmony.Patch(AccessTools.DeclaredMethod(typeof(GameDataSaveLoader), nameof(GameDataSaveLoader.SaveGame), new[] { typeof(string) }),
-                prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeSave), flags)),
-                finalizer: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterSave), flags)));
+                prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeSave), flags)) { priority = Priority.First },
+                finalizer: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterSave), flags)) { priority = Priority.Last });
             harmony.Patch(AccessTools.DeclaredMethod(typeof(Root), nameof(Root.Update), Type.EmptyTypes),
                 prefix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(BeforeUpdate), flags)),
                 postfix: new HarmonyMethod(typeof(ResourceRuntime).GetMethod(nameof(AfterUpdate), flags)));
@@ -274,12 +283,17 @@ internal sealed class ResourceRuntime
             && now - gcComparableSince >= gcMonitor.Latest.WindowSeconds * 1000 - 0.01)
         {
             GcCurrent = GcBenchmark.From(gcMonitor.Latest, phase, context.Item2, context.Item3);
+            long available = status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1;
             if (focused && phase is GamePhase.PlayingNormal or GamePhase.PlayingFast && context.Item2 is int speed && context.Item3 is float rate
                 && start is { } begin)
             {
                 // Added once the thread read at its end finishes, usually a few frames later.
-                pendingWindow = new PendingWindow(speed, rate, gcMonitor.Latest, begin, end, frames,
-                    status.Memory.FromOperatingSystem ? status.Memory.AvailablePhysical : -1, offloaded, samplingMs);
+                pendingWindow = new PendingWindow(speed, rate, gcMonitor.Latest, begin, end, frames, available, offloaded, samplingMs);
+                AddPendingWindow(waitedLongEnough: false);
+            }
+            else if (focused && phase == GamePhase.MainMenu && start is { } titleBegin)
+            {
+                pendingWindow = new PendingWindow(0, 0, gcMonitor.Latest, titleBegin, end, frames, available, offloaded, samplingMs, Title: true);
                 AddPendingWindow(waitedLongEnough: false);
             }
         }
@@ -307,7 +321,7 @@ internal sealed class ResourceRuntime
         bool ready = (w.Begin.Threads?.IsCompleted ?? true) && (w.End.Threads?.IsCompleted ?? true);
         if (!ready && !waitedLongEnough) return;
         pendingWindow = null;
-        Play.Add(w.Speed, w.Rate, w.Gc, PlayWindowBetween(w));
+        (w.Title ? TitleScreen : Play).Add(w.Speed, w.Rate, w.Gc, PlayWindowBetween(w));
     }
 
     private static PlayWindow PlayWindowBetween(PendingWindow w)
@@ -638,17 +652,25 @@ internal sealed class ResourceRuntime
         return folders;
     }
 
+    /// <summary>
+    /// Runs first and <see cref="AfterSave"/> runs last (see the patch priorities), so the time of a save includes
+    /// every other mod's prefixes and postfixes of the save call as well as their work inside it.
+    /// </summary>
     private static void BeforeSave(out ResourceRuntime? __state)
     {
         __state = Volatile.Read(ref instance);
         if (__state == null) return;
-        Interlocked.Increment(ref __state.savingDepth);
+        if (Interlocked.Increment(ref __state.savingDepth) == 1)
+            __state.saveStart = (Stopwatch.GetTimestamp(), GC.GetTotalPauseDuration().TotalMilliseconds, GC.GetTotalAllocatedBytes(false));
         Interlocked.Exchange(ref __state.benchmarkInterrupted, 1);
     }
 
     private static void AfterSave(ResourceRuntime? __state)
     {
-        if (__state != null) Interlocked.Decrement(ref __state.savingDepth);
+        if (__state == null || Interlocked.Decrement(ref __state.savingDepth) != 0) return;
+        var (started, pauseMs, allocated) = __state.saveStart;
+        __state.Saves.Add(new SaveTime(Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            GC.GetTotalPauseDuration().TotalMilliseconds - pauseMs, GC.GetTotalAllocatedBytes(false) - allocated));
     }
 
     private static void BeforeReload(bool hotReload)
